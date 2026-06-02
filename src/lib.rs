@@ -2,9 +2,12 @@ pub mod audio;
 pub mod breath;
 pub mod cli;
 pub mod config;
+pub mod door;
+pub mod keymap;
 pub mod palette;
 pub mod paths;
 pub mod render;
+pub mod session;
 pub mod state;
 pub mod term;
 
@@ -39,7 +42,7 @@ pub fn run(cli: Cli) -> i32 {
         Some(Command::Download(_)) => unwired("download", "the optional sound packs"),
         Some(Command::Integration { .. }) => unwired("integration", "the workflow nudges"),
         Some(Command::Streak { .. }) => unwired("streak", "local ritual tracking"),
-        None => start_session(&cli),
+        None => session::run(&cli),
     }
 }
 
@@ -74,30 +77,4 @@ fn cmd_config(action: Option<&ConfigAction>) -> i32 {
             }
         },
     }
-}
-
-fn start_session(cli: &Cli) -> i32 {
-    let config_dir = match paths::config_dir() {
-        Ok(dir) => dir,
-        Err(err) => {
-            eprintln!("meditate: {err}");
-            return 1;
-        }
-    };
-    let data_dir = match paths::data_dir() {
-        Ok(dir) => dir,
-        Err(err) => {
-            eprintln!("meditate: {err}");
-            return 1;
-        }
-    };
-
-    let config = Config::load_or_default(&config_dir);
-    let state = State::load_from(&data_dir);
-    let pattern = resolve_start_pattern(cli.pattern.map(|p| p.as_str()), &config, &state)
-        .unwrap_or_else(|| "calm".to_string());
-
-    println!("meditate is ready — starting pattern: {pattern}");
-    println!("the breathing screen is wired up in a later build step.");
-    0
 }
