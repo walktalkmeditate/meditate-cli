@@ -76,5 +76,5 @@ jobs:
             dist/*.zip
             dist/checksums.txt
 
-  # Follow-up: publish a Homebrew formula to momentmaker/homebrew-tap (cargo-dist
+  # Follow-up: publish a Homebrew formula to walktalkmeditate/homebrew-tap (cargo-dist
   # can generate this) and add an aarch64-unknown-linux-gnu target via `cross`.

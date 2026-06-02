@@ -3,7 +3,7 @@
 # verifies its checksum, and installs it to ~/.local/bin.
 set -eu
 
-REPO="momentmaker/meditate-cli"
+REPO="walktalkmeditate/meditate-cli"
 BIN="meditate"
 
 sha256() {

@@ -2,7 +2,7 @@
 # checksum, and installs it to %LOCALAPPDATA%\Programs\meditate.
 $ErrorActionPreference = "Stop"
 
-$repo = "momentmaker/meditate-cli"
+$repo = "walktalkmeditate/meditate-cli"
 $bin = "meditate"
 
 $arch = switch ($env:PROCESSOR_ARCHITECTURE) {

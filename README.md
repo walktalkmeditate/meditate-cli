@@ -16,19 +16,19 @@ sounds; press `q` when the meeting picks back up.
 **Homebrew (macOS / Linux)**
 
 ```sh
-brew install momentmaker/tap/meditate
+brew install walktalkmeditate/tap/meditate
 ```
 
 **One-line installers**
 
 ```sh
 # macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/momentmaker/meditate-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/walktalkmeditate/meditate-cli/main/install.sh | sh
 ```
 
 ```powershell
 # Windows
-irm https://raw.githubusercontent.com/momentmaker/meditate-cli/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/walktalkmeditate/meditate-cli/main/install.ps1 | iex
 ```
 
 **From source** (Rust 1.82+)

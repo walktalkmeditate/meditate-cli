@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.82"
 license = "MIT"
 description = "A terminal breathing companion — paced breathing, soundscapes, and voice guides in your terminal."
-repository = "https://github.com/momentmaker/meditate-cli"
+repository = "https://github.com/walktalkmeditate/meditate-cli"
 keywords = ["meditation", "breathing", "tui", "cli", "wellness"]
 categories = ["command-line-utilities"]
 
