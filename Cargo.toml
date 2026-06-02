@@ -9,6 +9,12 @@ repository = "https://github.com/momentmaker/meditate-cli"
 keywords = ["meditation", "breathing", "tui", "cli", "wellness"]
 categories = ["command-line-utilities"]
 
+[features]
+default = []
+# Real audio output via cpal. Off by default so the core builds and tests
+# headlessly; enable on a machine with an audio device for playback.
+audio = ["dep:cpal", "dep:coreaudio-sys"]
+
 [[bin]]
 name = "meditate"
 path = "src/main.rs"
@@ -25,6 +31,11 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 directories = "5"
 indexmap = "=2.6.0"
+cpal = { version = "0.15", optional = true }
+
+# cpal pulls coreaudio-sys on macOS; pin below the edition2024 bump for MSRV 1.82.
+[target.'cfg(target_os = "macos")'.dependencies]
+coreaudio-sys = { version = "=0.2.16", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
