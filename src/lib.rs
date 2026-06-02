@@ -9,9 +9,10 @@ pub mod paths;
 pub mod render;
 pub mod session;
 pub mod state;
+pub mod streak;
 pub mod term;
 
-use cli::{Cli, Command, ConfigAction};
+use cli::{Cli, Command, ConfigAction, StreakAction};
 use config::Config;
 use state::State;
 
@@ -41,8 +42,40 @@ pub fn run(cli: Cli) -> i32 {
         Some(Command::Config { action }) => cmd_config(action.as_ref()),
         Some(Command::Download(_)) => unwired("download", "the optional sound packs"),
         Some(Command::Integration { .. }) => unwired("integration", "the workflow nudges"),
-        Some(Command::Streak { .. }) => unwired("streak", "local ritual tracking"),
+        Some(Command::Streak { action }) => cmd_streak(action.as_ref()),
         None => session::run(&cli),
+    }
+}
+
+fn cmd_streak(action: Option<&StreakAction>) -> i32 {
+    let dir = match paths::data_dir() {
+        Ok(dir) => dir,
+        Err(err) => {
+            eprintln!("meditate: {err}");
+            return 1;
+        }
+    };
+    match action {
+        Some(StreakAction::Reset) => match streak::reset(&dir) {
+            Ok(()) => {
+                println!("Your local streak has been cleared.");
+                0
+            }
+            Err(err) => {
+                eprintln!("meditate: could not clear streak: {err}");
+                1
+            }
+        },
+        _ => {
+            let record = streak::Streak::load_from(&dir);
+            println!(
+                "  {} min total · {}-day streak · longest {} days",
+                record.total_minutes(),
+                record.current_streak,
+                record.longest_streak
+            );
+            0
+        }
     }
 }
 

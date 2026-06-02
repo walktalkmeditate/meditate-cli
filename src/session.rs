@@ -9,6 +9,7 @@ use crate::paths;
 use crate::render::orb::{self, OrbScene};
 use crate::render::{renderer_for, Surface};
 use crate::state::State;
+use crate::streak;
 use crate::term::{Capabilities, Env, SystemEnv};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
@@ -183,10 +184,22 @@ pub fn run(cli: &Cli) -> i32 {
 
     let config = Config::load_or_default(&config_dir);
     let state = State::load_from(&data_dir);
+    let streak_enabled = config.streak_enabled.unwrap_or(true) && !cli.no_streak;
 
     if !io::stdout().is_terminal() {
         println!("meditate needs an interactive terminal — stdout is not a TTY.");
         return 0;
+    }
+
+    if streak_enabled {
+        let record = streak::Streak::load_from(&data_dir);
+        if record.current_streak > 0 {
+            println!(
+                "  {} days running · {} min total",
+                record.current_streak,
+                record.total_minutes()
+            );
+        }
     }
 
     let _guard = match TerminalGuard::enter() {
@@ -205,6 +218,10 @@ pub fn run(cli: &Cli) -> i32 {
         last_pattern: Some(outcome.pattern_name.clone()),
     }
     .save_to(&data_dir);
+
+    if streak_enabled {
+        let _ = streak::record_session(&data_dir, streak::today_utc(), outcome.elapsed.as_secs());
+    }
 
     print_summary(&outcome);
     0

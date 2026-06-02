@@ -32,6 +32,7 @@ toml = "0.8"
 directories = "5"
 indexmap = "=2.6.0"
 crossterm = "0.28"
+fs2 = "0.4"
 cpal = { version = "0.15", optional = true }
 
 # cpal pulls coreaudio-sys on macOS; pin below the edition2024 bump for MSRV 1.82.
