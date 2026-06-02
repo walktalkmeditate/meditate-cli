@@ -5,6 +5,7 @@ pub mod config;
 pub mod door;
 pub mod integration;
 pub mod keymap;
+pub mod pack;
 pub mod palette;
 pub mod paths;
 pub mod render;
@@ -13,7 +14,7 @@ pub mod state;
 pub mod streak;
 pub mod term;
 
-use cli::{Cli, Command, ConfigAction, IntegrationAction, StreakAction};
+use cli::{Cli, Command, ConfigAction, DownloadArgs, IntegrationAction, StreakAction};
 use config::Config;
 use state::State;
 
@@ -41,7 +42,7 @@ pub fn resolve_start_pattern(
 pub fn run(cli: Cli) -> i32 {
     match &cli.command {
         Some(Command::Config { action }) => cmd_config(action.as_ref()),
-        Some(Command::Download(_)) => unwired("download", "the optional sound packs"),
+        Some(Command::Download(args)) => cmd_download(args),
         Some(Command::Integration { action }) => cmd_integration(action),
         Some(Command::Streak { action }) => cmd_streak(action.as_ref()),
         None => session::run(&cli),
@@ -80,9 +81,66 @@ fn cmd_streak(action: Option<&StreakAction>) -> i32 {
     }
 }
 
-fn unwired(command: &str, what: &str) -> i32 {
-    eprintln!("meditate: `{command}` arrives with {what} in a later build step.");
-    1
+fn cmd_download(args: &DownloadArgs) -> i32 {
+    let kind = match &args.pack {
+        None => {
+            println!("Optional packs: soundscapes, voices, bells.");
+            println!("Download one with: meditate download soundscapes");
+            return 0;
+        }
+        Some(name) => match pack::AssetKind::from_arg(name) {
+            Some(kind) => kind,
+            None => {
+                eprintln!("meditate: unknown pack '{name}' (try soundscapes, voices, or bells)");
+                return 1;
+            }
+        },
+    };
+
+    #[cfg(not(feature = "download"))]
+    {
+        let _ = kind;
+        eprintln!(
+            "meditate: this build can't download packs — use the released binary \
+             or rebuild with `--features download`."
+        );
+        1
+    }
+
+    #[cfg(feature = "download")]
+    {
+        let cache = match paths::data_dir() {
+            Ok(dir) => dir,
+            Err(err) => {
+                eprintln!("meditate: {err}");
+                return 1;
+            }
+        };
+        let fetcher = pack::HttpFetcher::new();
+        let manifest = match pack::fetch_manifest(&fetcher, pack::DEFAULT_BASE_URL) {
+            Ok(manifest) => manifest,
+            Err(err) => {
+                eprintln!("meditate: {err}");
+                return 1;
+            }
+        };
+        let assets = manifest.assets_for(kind);
+        if assets.is_empty() {
+            println!("No {} available right now.", kind.dir());
+            return 0;
+        }
+        let mut failures = 0;
+        for asset in assets {
+            match pack::download(&fetcher, pack::DEFAULT_BASE_URL, &cache, kind, &asset.id) {
+                Ok(path) => println!("Downloaded {} → {}", asset.id, path.display()),
+                Err(err) => {
+                    eprintln!("meditate: {} — {err}", asset.id);
+                    failures += 1;
+                }
+            }
+        }
+        i32::from(failures > 0)
+    }
 }
 
 fn cmd_integration(action: &IntegrationAction) -> i32 {

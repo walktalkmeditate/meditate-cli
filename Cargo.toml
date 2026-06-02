@@ -14,6 +14,8 @@ default = []
 # Real audio output via cpal. Off by default so the core builds and tests
 # headlessly; enable on a machine with an audio device for playback.
 audio = ["dep:cpal", "dep:coreaudio-sys"]
+# Network pack downloads via ureq. Off by default; release builds enable it.
+download = ["dep:ureq", "dep:idna_adapter"]
 
 [[bin]]
 name = "meditate"
@@ -33,7 +35,11 @@ directories = "5"
 indexmap = "=2.6.0"
 crossterm = "0.28"
 fs2 = "0.4"
+serde_json = "1"
 cpal = { version = "0.15", optional = true }
+ureq = { version = "2", optional = true }
+# Pinned below the edition2024 bump for the 1.82 MSRV (pulled by ureq -> url).
+idna_adapter = { version = "=1.2.0", optional = true }
 
 # cpal pulls coreaudio-sys on macOS; pin below the edition2024 bump for MSRV 1.82.
 [target.'cfg(target_os = "macos")'.dependencies]
