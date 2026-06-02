@@ -1,6 +1,7 @@
 pub mod breath;
 pub mod cli;
 pub mod config;
+pub mod palette;
 pub mod paths;
 pub mod render;
 pub mod state;

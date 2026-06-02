@@ -1,5 +1,6 @@
 pub mod cell_gradient;
 pub mod mono;
+pub mod orb;
 
 use crate::term::{Capabilities, ColorDepth};
 
