@@ -2,7 +2,9 @@ pub mod breath;
 pub mod cli;
 pub mod config;
 pub mod paths;
+pub mod render;
 pub mod state;
+pub mod term;
 
 use cli::{Cli, Command, ConfigAction};
 use config::Config;
