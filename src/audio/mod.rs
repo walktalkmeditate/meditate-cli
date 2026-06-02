@@ -1,6 +1,7 @@
 pub mod bells;
 #[cfg(feature = "audio")]
 pub mod output;
+pub mod voice;
 
 use std::sync::Arc;
 

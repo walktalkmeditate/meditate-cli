@@ -21,6 +21,8 @@ impl Fetcher for FakeFetcher {
 
 const MANIFEST: &str = r#"{"soundscapes":[{"id":"forest","type":"soundscape","displayName":"Forest","durationSec":120,"fileSizeBytes":8,"r2Key":"soundscape/forest.ogg"}]}"#;
 
+const VOICES_MANIFEST: &str = r#"{"voices":[{"id":"gentle","type":"voice","fileSizeBytes":4,"r2Key":"voice/gentle.aac","walkPrompts":[{"id":"w1","r2Key":"x.aac","phase":"walk"}],"meditationPrompts":[{"id":"m1","r2Key":"voice/m1.aac","phase":"settling"}]}]}"#;
+
 fn ogg_bytes() -> Vec<u8> {
     b"OggS\x00\x00\x00\x00".to_vec()
 }
@@ -135,4 +137,17 @@ fn unknown_asset_is_rejected() {
 fn fresh_cache_is_empty_offline() {
     let dir = tempfile::tempdir().unwrap();
     assert!(available(dir.path(), AssetKind::Soundscape).is_empty());
+}
+
+#[test]
+fn voice_manifest_keeps_only_meditation_prompts() {
+    let mut responses = HashMap::new();
+    responses.insert(
+        format!("{BASE}/manifest.json"),
+        VOICES_MANIFEST.as_bytes().to_vec(),
+    );
+    let manifest = fetch_manifest(&FakeFetcher { responses }, BASE).unwrap();
+    let voice = &manifest.voices[0];
+    assert_eq!(voice.meditation_prompts.len(), 1);
+    assert_eq!(voice.meditation_prompts[0].id, "m1");
 }
