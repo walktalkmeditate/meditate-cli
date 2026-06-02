@@ -47,3 +47,11 @@ coreaudio-sys = { version = "=0.2.16", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
+
+# Note: panic is deliberately left as "unwind" (not "abort") so the session's
+# RAII TerminalGuard runs on a panic and restores the terminal.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

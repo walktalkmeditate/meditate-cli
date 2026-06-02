@@ -1,0 +1,25 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --locked
+      - name: Core runs with no network (zero-telemetry guard)
+        run: |
+          # The non-download paths must make zero network calls. Run a core
+          # command inside a network namespace with no connectivity; if it
+          # touches the network, it fails here.
+          cargo build --quiet
+          sudo unshare -rn ./target/debug/meditate config path
