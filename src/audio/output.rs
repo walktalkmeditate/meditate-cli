@@ -19,6 +19,9 @@ impl CpalBackend {
         let channels = config.channels() as usize;
 
         let mixer = Arc::new(Mutex::new(Mixer::new()));
+        if let Ok(mut guard) = mixer.lock() {
+            guard.set_sample_rate(sample_rate);
+        }
         let stream_mixer = Arc::clone(&mixer);
 
         let stream = device
