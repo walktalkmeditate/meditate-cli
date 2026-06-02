@@ -3,6 +3,7 @@ pub mod breath;
 pub mod cli;
 pub mod config;
 pub mod door;
+pub mod integration;
 pub mod keymap;
 pub mod palette;
 pub mod paths;
@@ -12,7 +13,7 @@ pub mod state;
 pub mod streak;
 pub mod term;
 
-use cli::{Cli, Command, ConfigAction, StreakAction};
+use cli::{Cli, Command, ConfigAction, IntegrationAction, StreakAction};
 use config::Config;
 use state::State;
 
@@ -41,7 +42,7 @@ pub fn run(cli: Cli) -> i32 {
     match &cli.command {
         Some(Command::Config { action }) => cmd_config(action.as_ref()),
         Some(Command::Download(_)) => unwired("download", "the optional sound packs"),
-        Some(Command::Integration { .. }) => unwired("integration", "the workflow nudges"),
+        Some(Command::Integration { action }) => cmd_integration(action),
         Some(Command::Streak { action }) => cmd_streak(action.as_ref()),
         None => session::run(&cli),
     }
@@ -82,6 +83,42 @@ fn cmd_streak(action: Option<&StreakAction>) -> i32 {
 fn unwired(command: &str, what: &str) -> i32 {
     eprintln!("meditate: `{command}` arrives with {what} in a later build step.");
     1
+}
+
+fn cmd_integration(action: &IntegrationAction) -> i32 {
+    let Some(base) = directories::BaseDirs::new() else {
+        eprintln!("meditate: could not find your home directory");
+        return 1;
+    };
+    let home = base.home_dir();
+    let binary = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.to_str().map(String::from))
+        .unwrap_or_else(|| "meditate".to_string());
+
+    let (verb, result) = match action {
+        IntegrationAction::Install => ("Updated", integration::install(home, &binary)),
+        IntegrationAction::Uninstall => ("Cleaned", integration::uninstall(home, &binary)),
+    };
+    match result {
+        Ok(changed) if changed.is_empty() => {
+            println!("No shell or tmux config found to update.");
+            0
+        }
+        Ok(changed) => {
+            for path in changed {
+                println!("{verb} {}", path.display());
+            }
+            if matches!(action, IntegrationAction::Install) {
+                println!("Restart your shell (or re-source it) to enable breathe nudges.");
+            }
+            0
+        }
+        Err(err) => {
+            eprintln!("meditate: {err}");
+            1
+        }
+    }
 }
 
 fn cmd_config(action: Option<&ConfigAction>) -> i32 {
