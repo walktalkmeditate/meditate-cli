@@ -23,6 +23,8 @@ const MANIFEST: &str = r#"{"soundscapes":[{"id":"forest","type":"soundscape","di
 
 const VOICES_MANIFEST: &str = r#"{"voices":[{"id":"gentle","type":"voice","fileSizeBytes":4,"r2Key":"voice/gentle.aac","walkPrompts":[{"id":"w1","r2Key":"x.aac","phase":"walk"}],"meditationPrompts":[{"id":"m1","r2Key":"voice/m1.aac","phase":"settling"}]}]}"#;
 
+const TRAVERSAL_MANIFEST: &str = r#"{"soundscapes":[{"id":"evil","type":"soundscape","fileSizeBytes":8,"r2Key":"../evil.ogg"}]}"#;
+
 fn ogg_bytes() -> Vec<u8> {
     b"OggS\x00\x00\x00\x00".to_vec()
 }
@@ -137,6 +139,34 @@ fn unknown_asset_is_rejected() {
 fn fresh_cache_is_empty_offline() {
     let dir = tempfile::tempdir().unwrap();
     assert!(available(dir.path(), AssetKind::Soundscape).is_empty());
+}
+
+#[test]
+fn safe_r2_key_rejects_traversal_and_absolute_paths() {
+    use meditate::pack::safe_r2_key;
+    assert!(safe_r2_key("soundscape/forest.ogg"));
+    assert!(!safe_r2_key("../etc/passwd"));
+    assert!(!safe_r2_key("/abs/path.ogg"));
+    assert!(!safe_r2_key("a//b.ogg"));
+    assert!(!safe_r2_key("a/../b.ogg"));
+}
+
+#[test]
+fn download_rejects_an_unsafe_r2_key() {
+    let mut responses = HashMap::new();
+    responses.insert(
+        format!("{BASE}/manifest.json"),
+        TRAVERSAL_MANIFEST.as_bytes().to_vec(),
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let result = download(
+        &FakeFetcher { responses },
+        BASE,
+        dir.path(),
+        AssetKind::Soundscape,
+        "evil",
+    );
+    assert!(matches!(result, Err(PackError::UnsafeName(_))));
 }
 
 #[test]

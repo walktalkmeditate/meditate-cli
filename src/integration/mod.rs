@@ -57,14 +57,19 @@ pub fn uninstall(home: &Path, binary: &str) -> io::Result<Vec<PathBuf>> {
 }
 
 pub fn apply_install(path: &Path, snippet: &str) -> io::Result<()> {
-    let existing = std::fs::read_to_string(path).unwrap_or_default();
-    std::fs::write(path, format!("{}\n", with_block(&existing, snippet)))
+    let existing = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => String::new(),
+        Err(err) => return Err(err),
+    };
+    write_atomic(path, &format!("{}\n", with_block(&existing, snippet)))
 }
 
 pub fn apply_uninstall(path: &Path) -> io::Result<()> {
     let existing = match std::fs::read_to_string(path) {
         Ok(text) => text,
-        Err(_) => return Ok(()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err),
     };
     let cleaned = without_block(&existing);
     let contents = if cleaned.is_empty() {
@@ -72,7 +77,17 @@ pub fn apply_uninstall(path: &Path) -> io::Result<()> {
     } else {
         format!("{cleaned}\n")
     };
-    std::fs::write(path, contents)
+    write_atomic(path, &contents)
+}
+
+/// Write via a sibling temp file + atomic rename, so a crash mid-write can never
+/// truncate the user's shell config.
+fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
+    let mut temp = path.as_os_str().to_owned();
+    temp.push(".meditate-tmp");
+    let temp = PathBuf::from(temp);
+    std::fs::write(&temp, contents)?;
+    std::fs::rename(&temp, path)
 }
 
 /// Replace (or append) the meditate block in `existing`, leaving everything
@@ -91,19 +106,27 @@ pub fn with_block(existing: &str, snippet: &str) -> String {
     out
 }
 
-/// Remove the marker-delimited meditate block, preserving all other lines.
+/// Remove the marker-delimited meditate block, preserving all other lines. Only
+/// a properly paired BEGIN..END is stripped; an unmatched BEGIN (e.g. left by a
+/// crash mid-write) leaves the file untouched rather than deleting everything
+/// after it.
 pub fn without_block(existing: &str) -> String {
-    let mut kept = Vec::new();
-    let mut skipping = false;
-    for line in existing.lines() {
-        match line.trim() {
-            BEGIN => skipping = true,
-            END => skipping = false,
-            _ if !skipping => kept.push(line),
-            _ => {}
+    let lines: Vec<&str> = existing.lines().collect();
+    let begin = lines.iter().position(|line| line.trim() == BEGIN);
+    let end = begin.and_then(|b| {
+        lines[b + 1..]
+            .iter()
+            .position(|line| line.trim() == END)
+            .map(|offset| b + 1 + offset)
+    });
+    match (begin, end) {
+        (Some(b), Some(e)) => {
+            let mut kept: Vec<&str> = lines[..b].to_vec();
+            kept.extend_from_slice(&lines[e + 1..]);
+            kept.join("\n").trim_end_matches('\n').to_string()
         }
+        _ => existing.trim_end_matches('\n').to_string(),
     }
-    kept.join("\n").trim_end_matches('\n').to_string()
 }
 
 /// Single-quote a string for safe embedding in a shell snippet.

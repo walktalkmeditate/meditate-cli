@@ -218,6 +218,7 @@ impl Mixer {
     pub fn soundscape_gain(&self) -> Option<f32> {
         self.layers
             .iter()
+            .rev()
             .find(|l| l.slot == Slot::Soundscape)
             .map(|l| l.gain * l.duck)
     }

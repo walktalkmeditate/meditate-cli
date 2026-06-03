@@ -17,6 +17,7 @@ fn parses_durations() {
     assert_eq!(parse_duration("0"), None);
     assert_eq!(parse_duration(""), None);
     assert_eq!(parse_duration("5x"), None);
+    assert_eq!(parse_duration("9223372036854775807h"), None); // overflow guard
 }
 
 #[test]

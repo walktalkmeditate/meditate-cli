@@ -30,6 +30,15 @@ fn a_gap_resets_the_streak_but_keeps_the_longest() {
 }
 
 #[test]
+fn backward_clock_does_not_reset_the_streak() {
+    let mut streak = Streak::default();
+    streak.record(100, 120);
+    streak.record(101, 120);
+    streak.record(99, 120); // clock moved backward — must not reset
+    assert_eq!(streak.current_streak, 2);
+}
+
+#[test]
 fn sub_minute_sessions_earn_nothing() {
     let mut streak = Streak::default();
     streak.record(100, MIN_SESSION_SECS - 1);

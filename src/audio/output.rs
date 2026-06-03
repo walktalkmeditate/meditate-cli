@@ -30,7 +30,8 @@ impl CpalBackend {
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     let frames = data.len() / channels.max(1);
                     let mut block = vec![0.0f32; frames];
-                    if let Ok(mut mixer) = stream_mixer.lock() {
+                    {
+                        let mut mixer = stream_mixer.lock().unwrap_or_else(|p| p.into_inner());
                         mixer.render(&mut block);
                     }
                     for (frame, sample) in data.chunks_mut(channels.max(1)).zip(block) {
@@ -39,7 +40,7 @@ impl CpalBackend {
                         }
                     }
                 },
-                |_err| {},
+                |err| eprintln!("meditate: audio stream error: {err}"),
                 None,
             )
             .ok()?;
@@ -55,20 +56,23 @@ impl CpalBackend {
 
 impl AudioBackend for CpalBackend {
     fn bell(&self) {
-        if let Ok(mut mixer) = self.mixer.lock() {
-            mixer.play(Arc::clone(&self.bell));
-        }
+        self.mixer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .play(Arc::clone(&self.bell));
     }
 
     fn set_master(&self, volume: f32) {
-        if let Ok(mut mixer) = self.mixer.lock() {
-            mixer.set_master(volume);
-        }
+        self.mixer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .set_master(volume);
     }
 
     fn set_muted(&self, muted: bool) {
-        if let Ok(mut mixer) = self.mixer.lock() {
-            mixer.set_muted(muted);
-        }
+        self.mixer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .set_muted(muted);
     }
 }

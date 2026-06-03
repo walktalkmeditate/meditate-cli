@@ -12,7 +12,6 @@ pub enum ColorDepth {
 pub enum GraphicsProtocol {
     Kitty,
     ITerm2,
-    Sixel,
     None,
 }
 

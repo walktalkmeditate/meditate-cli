@@ -36,7 +36,9 @@ impl Streak {
         self.total_seconds += session_secs;
         match self.last_day {
             Some(day) if day == today => {}
-            Some(day) if day == today - 1 => self.current_streak += 1,
+            Some(day) if today == day + 1 => self.current_streak += 1,
+            // Clock moved backward (NTP correction, travel) — leave the streak intact.
+            Some(day) if today < day => {}
             _ => self.current_streak = 1,
         }
         self.last_day = Some(today);

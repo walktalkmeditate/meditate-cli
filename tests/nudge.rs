@@ -58,6 +58,25 @@ fn tmux_snippet_binds_a_popup() {
 }
 
 #[test]
+fn orphaned_begin_marker_leaves_user_lines_intact() {
+    // A crash mid-write can leave a BEGIN with no END; removal must not delete
+    // everything after it.
+    let crafted = "export A=1\n# >>> meditate integration >>>\nexport B=2";
+    assert_eq!(without_block(crafted), crafted);
+}
+
+#[test]
+fn install_only_touches_existing_config_files() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(".zshrc"), "export EDITOR=vim\n").unwrap();
+
+    let changed = meditate::integration::install(dir.path(), "/usr/local/bin/meditate").unwrap();
+    assert_eq!(changed.len(), 1);
+    assert!(changed[0].ends_with(".zshrc"));
+    assert!(!dir.path().join(".bashrc").exists());
+}
+
+#[test]
 fn install_then_uninstall_restores_the_file() {
     let dir = tempfile::tempdir().unwrap();
     let rc = dir.path().join(".zshrc");

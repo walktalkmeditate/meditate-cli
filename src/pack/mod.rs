@@ -52,8 +52,8 @@ pub struct AudioAsset {
     pub meditation_prompts: Vec<MeditationPrompt>,
 }
 
-/// A single meditation voice prompt (used by U9). Walk prompts are absent here
-/// by construction — only the meditation set is modeled.
+/// A single meditation voice prompt (consumed by the voice scheduler). Walk
+/// prompts are absent here by construction — only the meditation set is modeled.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct MeditationPrompt {
     pub id: String,
@@ -135,6 +135,20 @@ pub fn safe_component(name: &str) -> Option<String> {
     ok.then(|| name.to_string())
 }
 
+/// Validate a manifest `r2Key` before it is used to build a download URL:
+/// relative, no `..`/`.`/empty/absolute segments, allowlisted characters
+/// (forward slashes permitted, unlike `safe_component`).
+pub fn safe_r2_key(key: &str) -> bool {
+    !key.is_empty()
+        && !key.starts_with('/')
+        && key
+            .split('/')
+            .all(|seg| !seg.is_empty() && seg != ".." && seg != ".")
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/'))
+}
+
 fn extension(r2_key: &str) -> Option<&str> {
     r2_key
         .rsplit('.')
@@ -165,9 +179,11 @@ pub fn available(cache_dir: &Path, kind: AssetKind) -> Vec<String> {
         .flatten()
         .flatten()
         .filter_map(|entry| {
-            entry
-                .path()
-                .file_stem()
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) == Some("part") {
+                return None;
+            }
+            path.file_stem()
                 .and_then(|stem| stem.to_str())
                 .map(String::from)
         })
@@ -226,6 +242,9 @@ pub fn download(
 
     let dest = cache_path(cache_dir, kind, asset)
         .ok_or_else(|| PackError::UnsafeName(asset.id.clone()))?;
+    if !safe_r2_key(&asset.r2_key) {
+        return Err(PackError::UnsafeName(asset.r2_key.clone()));
+    }
     let bytes = fetcher.get(&format!("{base_url}/{}", asset.r2_key))?;
     verify(&bytes, asset)?;
 
@@ -246,8 +265,15 @@ pub struct HttpFetcher {
 #[cfg(feature = "download")]
 impl HttpFetcher {
     pub fn new() -> HttpFetcher {
+        use std::time::Duration;
         HttpFetcher {
-            agent: ureq::AgentBuilder::new().build(),
+            agent: ureq::AgentBuilder::new()
+                .https_only(true)
+                .redirects(0)
+                .timeout_connect(Duration::from_secs(15))
+                .timeout_read(Duration::from_secs(60))
+                .timeout_write(Duration::from_secs(30))
+                .build(),
         }
     }
 }

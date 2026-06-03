@@ -72,12 +72,13 @@ pub fn parse_duration(text: &str) -> Option<Duration> {
         }
         let value: u64 = digits.parse().ok()?;
         digits.clear();
-        total += match ch {
-            'h' => value * 3600,
-            'm' => value * 60,
-            's' => value,
+        let unit: u64 = match ch {
+            'h' => 3600,
+            'm' => 60,
+            's' => 1,
             _ => return None,
         };
+        total = total.checked_add(value.checked_mul(unit)?)?;
     }
     if !digits.is_empty() || total == 0 {
         return None;
@@ -174,7 +175,12 @@ pub fn run(cli: &Cli) -> i32 {
         }
     };
 
-    let mode = match end_mode(cli.r#for.as_deref(), cli.breaths) {
+    if cli.breaths == Some(0) {
+        eprintln!("meditate: --breaths must be at least 1");
+        return 1;
+    }
+
+    let mut mode = match end_mode(cli.r#for.as_deref(), cli.breaths) {
         Some(mode) => mode,
         None => {
             eprintln!("meditate: could not understand --for value (try 5m, 90s, 1h30m)");
@@ -187,8 +193,16 @@ pub fn run(cli: &Cli) -> i32 {
     let streak_enabled = config.streak_enabled.unwrap_or(true) && !cli.no_streak;
 
     if !io::stdout().is_terminal() {
-        println!("meditate needs an interactive terminal — stdout is not a TTY.");
-        return 0;
+        eprintln!("meditate needs an interactive terminal — stdout is not a TTY.");
+        return 1;
+    }
+
+    let pattern_name =
+        crate::resolve_start_pattern(cli.pattern.map(|p| p.as_str()), &config, &state)
+            .unwrap_or_else(|| "calm".to_string());
+    if matches!(mode, EndMode::Breaths(_)) && breath::pattern_by_name(&pattern_name).is_still() {
+        println!("meditate: the 'none' pattern has no breaths to count — running open-ended.");
+        mode = EndMode::OpenEnded;
     }
 
     if streak_enabled {
@@ -202,6 +216,9 @@ pub fn run(cli: &Cli) -> i32 {
         }
     }
 
+    // Civil day of the session's start, so a sit crossing midnight credits the
+    // day it began (see streak.rs).
+    let session_day = streak::today_utc();
     let _guard = match TerminalGuard::enter() {
         Ok(guard) => guard,
         Err(err) => {
@@ -220,7 +237,7 @@ pub fn run(cli: &Cli) -> i32 {
     .save_to(&data_dir);
 
     if streak_enabled {
-        let _ = streak::record_session(&data_dir, streak::today_utc(), outcome.elapsed.as_secs());
+        let _ = streak::record_session(&data_dir, session_day, outcome.elapsed.as_secs());
     }
 
     print_summary(&outcome);
@@ -427,7 +444,7 @@ impl Session {
     }
 
     fn frame_interval(&self, phase: Phase) -> Duration {
-        if self.reduce_motion {
+        if self.reduce_motion || self.breath.is_paused() {
             Duration::from_millis(200)
         } else if matches!(phase, Phase::HoldIn | Phase::HoldOut | Phase::Still) {
             Duration::from_millis(100)
@@ -538,5 +555,20 @@ fn print_summary(outcome: &Outcome) {
     ) {
         println!();
         println!("  {}", door::INVITATION);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cycle_pattern_wraps_both_directions_and_clamps_unknown() {
+        let first = PATTERNS[0].name;
+        let last = PATTERNS[PATTERNS.len() - 1].name;
+        assert_eq!(cycle_pattern(last, 1).name, first);
+        assert_eq!(cycle_pattern(first, -1).name, last);
+        assert_eq!(cycle_pattern(first, 1).name, PATTERNS[1].name);
+        assert_eq!(cycle_pattern("wobble", 0).name, first);
     }
 }

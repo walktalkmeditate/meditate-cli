@@ -44,7 +44,8 @@ pub struct OrbScene {
 }
 
 /// Paint the orb, ripples, glow, and milestone flash into the surface. Pure: it
-/// only writes pixels, leaving cursor handling and the on-screen draw to U5.
+/// only writes pixels, leaving cursor handling and the on-screen draw to the
+/// session loop.
 pub fn paint(surface: &mut Surface, scene: &OrbScene) {
     surface.fill(scene.palette.background);
     let width = surface.width();

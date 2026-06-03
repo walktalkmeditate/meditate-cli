@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 pub const STATE_FILE: &str = "state.toml";
 
 /// Machine-written session state, kept separate from user config so meditate can
-/// rewrite it freely without touching hand-edited preferences. Streak data joins
-/// this file in a later build step.
+/// rewrite it freely without touching hand-edited preferences. Streak data lives
+/// in its own file (see `streak.rs`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct State {
