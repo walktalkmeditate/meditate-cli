@@ -171,10 +171,11 @@ pub fn cached(cache_dir: &Path, kind: AssetKind, asset: &AudioAsset) -> Option<P
     cache_path(cache_dir, kind, asset).filter(|path| path.exists())
 }
 
-/// List the asset ids already cached for a kind (offline-first inventory).
-pub fn available(cache_dir: &Path, kind: AssetKind) -> Vec<String> {
+/// List cached assets for a kind as (id, path) pairs, sorted by id. Skips the
+/// `.part` quarantine files.
+pub fn cached_files(cache_dir: &Path, kind: AssetKind) -> Vec<(String, PathBuf)> {
     let dir = cache_dir.join("packs").join(kind.dir());
-    let mut ids: Vec<String> = std::fs::read_dir(dir)
+    let mut files: Vec<(String, PathBuf)> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
         .flatten()
@@ -183,13 +184,20 @@ pub fn available(cache_dir: &Path, kind: AssetKind) -> Vec<String> {
             if path.extension().and_then(|ext| ext.to_str()) == Some("part") {
                 return None;
             }
-            path.file_stem()
-                .and_then(|stem| stem.to_str())
-                .map(String::from)
+            let id = path.file_stem()?.to_str()?.to_string();
+            Some((id, path))
         })
         .collect();
-    ids.sort();
-    ids
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    files
+}
+
+/// List the asset ids already cached for a kind (offline-first inventory).
+pub fn available(cache_dir: &Path, kind: AssetKind) -> Vec<String> {
+    cached_files(cache_dir, kind)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect()
 }
 
 /// Recognize common audio container magic bytes. Stands in as the integrity

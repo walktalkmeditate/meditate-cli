@@ -286,6 +286,11 @@ pub trait AudioBackend {
     fn bell(&self);
     fn set_master(&self, volume: f32);
     fn set_muted(&self, muted: bool);
+    fn play_soundscape(&self, samples: Arc<Vec<f32>>);
+    fn stop_soundscape(&self);
+    fn play_voice(&self, samples: Arc<Vec<f32>>);
+    /// The output sample rate, so callers decode/resample to match.
+    fn sample_rate(&self) -> u32;
 }
 
 pub struct SilentBackend;
@@ -294,6 +299,12 @@ impl AudioBackend for SilentBackend {
     fn bell(&self) {}
     fn set_master(&self, _volume: f32) {}
     fn set_muted(&self, _muted: bool) {}
+    fn play_soundscape(&self, _samples: Arc<Vec<f32>>) {}
+    fn stop_soundscape(&self) {}
+    fn play_voice(&self, _samples: Arc<Vec<f32>>) {}
+    fn sample_rate(&self) -> u32 {
+        SAMPLE_RATE
+    }
 }
 
 /// Open the best available audio backend, falling back to silence when the

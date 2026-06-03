@@ -4,6 +4,7 @@ use crate::cli::Cli;
 use crate::config::Config;
 use crate::door;
 use crate::keymap::{Action, Keymap};
+use crate::pack::{self, AssetKind};
 use crate::palette::{self, season_for_month, time_for_hour};
 use crate::paths;
 use crate::render::orb::{self, OrbScene};
@@ -15,6 +16,8 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{cursor, execute, queue};
 use std::io::{self, IsTerminal, Write};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const RIPPLE_TTL: f32 = 3.0;
@@ -141,6 +144,15 @@ fn cycle_pattern(current: &str, delta: i32) -> breath::Pattern {
     PATTERNS[(index + delta).rem_euclid(len) as usize]
 }
 
+/// Advance a "none → 0 → 1 → … → last → none" selection cycle.
+fn next_cycle_index(current: Option<usize>, len: usize) -> Option<usize> {
+    match current {
+        None => (len > 0).then_some(0),
+        Some(i) if i + 1 < len => Some(i + 1),
+        Some(_) => None,
+    }
+}
+
 /// Format a kebab-case pattern name for display: "deep-calm" -> "Deep calm".
 fn title_case(name: &str) -> String {
     let spaced = name.replace('-', " ");
@@ -237,7 +249,7 @@ pub fn run(cli: &Cli) -> i32 {
         }
     };
 
-    let session = Session::start(cli, &config, &state, mode);
+    let session = Session::start(cli, &config, &state, &data_dir, mode);
     let outcome = session.run_loop();
 
     drop(_guard);
@@ -266,6 +278,8 @@ struct Session {
     master: f32,
     muted: bool,
     focus: bool,
+    soundscapes: Vec<(String, PathBuf)>,
+    soundscape_idx: Option<usize>,
 }
 
 struct Outcome {
@@ -276,7 +290,7 @@ struct Outcome {
 }
 
 impl Session {
-    fn start(cli: &Cli, config: &Config, state: &State, mode: EndMode) -> Session {
+    fn start(cli: &Cli, config: &Config, state: &State, data_dir: &Path, mode: EndMode) -> Session {
         let env = SystemEnv;
         let caps = Capabilities::detect(&env);
         let (month, hour) = now_month_hour();
@@ -309,6 +323,8 @@ impl Session {
             master,
             muted: false,
             focus: false,
+            soundscapes: pack::cached_files(data_dir, AssetKind::Soundscape),
+            soundscape_idx: None,
         }
     }
 
@@ -405,9 +421,7 @@ impl Session {
                 self.breath.switch_to(prev, now);
                 self.focus.then(|| title_case(prev.name))
             }
-            Action::CycleSoundscape => {
-                Some("No soundscape pack — run: meditate download soundscapes".to_string())
-            }
+            Action::CycleSoundscape => self.cycle_soundscape(),
             Action::CycleVoice => Some("No voice pack — run: meditate download voices".to_string()),
             Action::ToggleBell => {
                 self.audio.bell();
@@ -449,6 +463,32 @@ impl Session {
                 self.focus.then(|| "Focus".to_string())
             }
             Action::Quit => None,
+        }
+    }
+
+    /// Cycle the soundscape: off → first → … → last → off. Decoding happens on
+    /// this thread (a brief hitch when switching a large loop); a background
+    /// decode is a worthwhile follow-up.
+    fn cycle_soundscape(&mut self) -> Option<String> {
+        if self.soundscapes.is_empty() {
+            return Some("No soundscape pack — run: meditate download soundscapes".to_string());
+        }
+        self.soundscape_idx = next_cycle_index(self.soundscape_idx, self.soundscapes.len());
+        match self.soundscape_idx {
+            None => {
+                self.audio.stop_soundscape();
+                Some("soundscape off".to_string())
+            }
+            Some(i) => {
+                let (id, path) = self.soundscapes[i].clone();
+                match pack::soundscape::load_samples(&path, self.audio.sample_rate()) {
+                    Some(samples) => {
+                        self.audio.play_soundscape(Arc::new(samples));
+                        Some(title_case(&id))
+                    }
+                    None => Some(format!("couldn't play {id}")),
+                }
+            }
         }
     }
 
@@ -635,5 +675,13 @@ mod tests {
             KeyOutcome::Act(Action::NextPattern)
         );
         assert_eq!(classify_key(&char_key('Z'), &keymap), KeyOutcome::Ignore);
+    }
+
+    #[test]
+    fn soundscape_cycle_runs_off_through_each_then_off() {
+        assert_eq!(next_cycle_index(None, 2), Some(0));
+        assert_eq!(next_cycle_index(Some(0), 2), Some(1));
+        assert_eq!(next_cycle_index(Some(1), 2), None);
+        assert_eq!(next_cycle_index(None, 0), None);
     }
 }

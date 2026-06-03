@@ -7,7 +7,16 @@ use std::sync::{Arc, Mutex};
 pub struct CpalBackend {
     mixer: Arc<Mutex<Mixer>>,
     bell: Arc<Vec<f32>>,
+    sample_rate: u32,
     _stream: cpal::Stream,
+}
+
+impl CpalBackend {
+    fn mixer(&self) -> std::sync::MutexGuard<'_, Mixer> {
+        self.mixer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 }
 
 impl CpalBackend {
@@ -49,6 +58,7 @@ impl CpalBackend {
         Some(CpalBackend {
             mixer,
             bell: Arc::new(bells::synth_bell(sample_rate)),
+            sample_rate,
             _stream: stream,
         })
     }
@@ -56,23 +66,30 @@ impl CpalBackend {
 
 impl AudioBackend for CpalBackend {
     fn bell(&self) {
-        self.mixer
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .play(Arc::clone(&self.bell));
+        self.mixer().play(Arc::clone(&self.bell));
     }
 
     fn set_master(&self, volume: f32) {
-        self.mixer
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .set_master(volume);
+        self.mixer().set_master(volume);
     }
 
     fn set_muted(&self, muted: bool) {
-        self.mixer
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .set_muted(muted);
+        self.mixer().set_muted(muted);
+    }
+
+    fn play_soundscape(&self, samples: Arc<Vec<f32>>) {
+        self.mixer().play_soundscape(samples);
+    }
+
+    fn stop_soundscape(&self) {
+        self.mixer().stop_soundscape();
+    }
+
+    fn play_voice(&self, samples: Arc<Vec<f32>>) {
+        self.mixer().play_voice(samples);
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.sample_rate
     }
 }
