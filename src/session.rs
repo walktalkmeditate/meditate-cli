@@ -202,6 +202,29 @@ impl Drop for TitleGuard {
     }
 }
 
+/// Emits a graphics renderer's teardown escape on drop, so the image is cleared
+/// on every exit path — including a panic unwind, which `fade_out_graphics` (only
+/// reached on a clean loop end) would miss.
+struct GraphicsGuard {
+    teardown: String,
+}
+
+impl GraphicsGuard {
+    fn new(teardown: String) -> GraphicsGuard {
+        GraphicsGuard { teardown }
+    }
+}
+
+impl Drop for GraphicsGuard {
+    fn drop(&mut self) {
+        if !self.teardown.is_empty() {
+            let mut out = io::stdout();
+            let _ = out.write_all(self.teardown.as_bytes());
+            let _ = out.flush();
+        }
+    }
+}
+
 /// Restores the terminal on every exit path, including a panic unwind.
 struct TerminalGuard;
 
@@ -303,8 +326,15 @@ pub fn run(cli: &Cli) -> i32 {
 
     let mut session = Session::start(cli, &config, &state, &data_dir, mode);
     session.waiting = waiter;
+    // Guarantees the graphics image is torn down even on a panic (its renderer
+    // knows the right escape; iTerm2's is empty, so the guard no-ops there).
+    let graphics_guard = session
+        .graphics
+        .as_ref()
+        .map(|renderer| GraphicsGuard::new(renderer.teardown()));
     let outcome = session.run_loop();
 
+    drop(graphics_guard);
     drop(title_guard);
     drop(_guard);
     let _ = State {
@@ -936,10 +966,8 @@ impl Session {
                 }
             }
         }
-        let teardown = kitty.teardown();
-        let mut stdout = io::stdout();
-        let _ = stdout.write_all(teardown.as_bytes());
-        let _ = stdout.flush();
+        // The image is deleted by the GraphicsGuard on exit, so it's cleared on a
+        // panic too — not only here on a clean end.
     }
 }
 

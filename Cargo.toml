@@ -46,6 +46,11 @@ idna_adapter = { version = "=1.2.0", optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 coreaudio-sys = { version = "=0.2.16", optional = true }
 
+# Used to signal a wrapped --until command's whole process group on cancel, so
+# its children (cargo -> rustc, …) die too — not just the launched shell.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3"
 

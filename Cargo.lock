@@ -840,6 +840,7 @@ dependencies = [
  "fs2",
  "idna_adapter",
  "indexmap",
+ "libc",
  "serde",
  "serde_json",
  "symphonia",

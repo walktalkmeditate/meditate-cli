@@ -47,8 +47,10 @@ pub struct Waiter {
 
 #[cfg(not(windows))]
 fn shell(command: &str) -> Command {
+    use std::os::unix::process::CommandExt;
     let mut c = Command::new("sh");
-    c.arg("-c").arg(command);
+    // Lead its own process group so cancel can signal the whole command tree.
+    c.arg("-c").arg(command).process_group(0);
     c
 }
 
@@ -107,11 +109,24 @@ impl Waiter {
         }
     }
 
-    /// Kill the command (Ctrl-C while waiting).
+    /// Kill the command (Ctrl-C while waiting), taking down its whole process
+    /// group so the command's children die too, not just the launched shell.
     pub fn cancel(mut self) -> WaitReport {
-        let _ = self.child.kill();
+        self.kill_tree();
         let _ = self.child.wait();
         self.report(WaitStatus::Cancelled)
+    }
+
+    #[cfg(unix)]
+    fn kill_tree(&mut self) {
+        // The child leads its own process group (see `shell`); a negative pid
+        // signals the whole group.
+        unsafe { libc::kill(-(self.child.id() as i32), libc::SIGKILL) };
+    }
+
+    #[cfg(windows)]
+    fn kill_tree(&mut self) {
+        let _ = self.child.kill();
     }
 
     /// Leave the command running (q/Esc while waiting).
@@ -270,6 +285,28 @@ mod tests {
         assert!(waiter.poll().is_none()); // still running
         let report = waiter.cancel();
         assert_eq!(report.status, WaitStatus::Cancelled);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancel_kills_the_whole_process_group() {
+        // sh backgrounds a long-lived grandchild, logs its pid, then waits on it.
+        let waiter = Waiter::spawn("sleep 30 & echo $!; wait").unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        let grandchild: i32 = waiter
+            .report(WaitStatus::Cancelled)
+            .tail
+            .lines()
+            .last()
+            .and_then(|line| line.trim().parse().ok())
+            .expect("grandchild pid in the log");
+
+        waiter.cancel();
+        std::thread::sleep(Duration::from_millis(150));
+
+        // kill(pid, 0) probes existence: 0 = alive, error/ESRCH = gone.
+        let alive = unsafe { libc::kill(grandchild, 0) } == 0;
+        assert!(!alive, "grandchild {grandchild} survived cancel");
     }
 
     #[cfg(unix)]
