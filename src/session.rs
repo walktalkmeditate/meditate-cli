@@ -141,6 +141,16 @@ fn cycle_pattern(current: &str, delta: i32) -> breath::Pattern {
     PATTERNS[(index + delta).rem_euclid(len) as usize]
 }
 
+/// Format a kebab-case pattern name for display: "deep-calm" -> "Deep calm".
+fn title_case(name: &str) -> String {
+    let spaced = name.replace('-', " ");
+    let mut chars = spaced.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => spaced,
+    }
+}
+
 /// Restores the terminal on every exit path, including a panic unwind.
 struct TerminalGuard;
 
@@ -356,17 +366,16 @@ impl Session {
             if let Ok(true) = event::poll(interval) {
                 if let Ok(Event::Key(key)) = event::read() {
                     if key.kind != KeyEventKind::Release {
-                        if is_quit(&key) {
-                            break;
-                        }
-                        if let KeyCode::Char(ch) = key.code {
-                            hint_until = Instant::now() + Duration::from_secs(4);
-                            if let Some(action) = self.keymap.action_for(ch) {
+                        hint_until = Instant::now() + Duration::from_secs(4);
+                        match classify_key(&key, &self.keymap) {
+                            KeyOutcome::Quit => break,
+                            KeyOutcome::Act(action) => {
                                 if let Some(text) = self.apply(action, now) {
                                     message = text;
                                     message_expiry = Instant::now() + Duration::from_secs(3);
                                 }
                             }
+                            KeyOutcome::Ignore => {}
                         }
                     }
                 }
@@ -389,12 +398,12 @@ impl Session {
             Action::NextPattern => {
                 let next = cycle_pattern(self.breath.pattern().name, 1);
                 self.breath.switch_to(next, now);
-                self.focus.then(|| next.name.to_string())
+                self.focus.then(|| title_case(next.name))
             }
             Action::PrevPattern => {
                 let prev = cycle_pattern(self.breath.pattern().name, -1);
                 self.breath.switch_to(prev, now);
-                self.focus.then(|| prev.name.to_string())
+                self.focus.then(|| title_case(prev.name))
             }
             Action::CycleSoundscape => {
                 Some("No soundscape pack — run: meditate download soundscapes".to_string())
@@ -497,7 +506,12 @@ impl Session {
     }
 
     fn status_line(&self, state: breath::PhaseState, hint_visible: bool, message: &str) -> String {
-        let mut line = format!("{}  ·  breath {}", state.phase.label(), state.breath_count);
+        let mut line = format!(
+            "{}  ·  {}  ·  breath {}",
+            title_case(self.breath.pattern().name),
+            state.phase.label(),
+            state.breath_count
+        );
         if !message.is_empty() {
             line.push_str("  ·  ");
             line.push_str(message);
@@ -541,6 +555,30 @@ fn is_quit(key: &event::KeyEvent) -> bool {
         || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum KeyOutcome {
+    Quit,
+    Act(Action),
+    Ignore,
+}
+
+/// Decide what a keypress means: quit (the keymap's quit binding, Esc, or
+/// Ctrl-C), a control action, or nothing. Pure, so the quit path is testable
+/// without a terminal.
+fn classify_key(key: &event::KeyEvent, keymap: &Keymap) -> KeyOutcome {
+    if is_quit(key) {
+        return KeyOutcome::Quit;
+    }
+    if let KeyCode::Char(ch) = key.code {
+        match keymap.action_for(ch) {
+            Some(Action::Quit) => return KeyOutcome::Quit,
+            Some(action) => return KeyOutcome::Act(action),
+            None => {}
+        }
+    }
+    KeyOutcome::Ignore
+}
+
 fn print_summary(outcome: &Outcome) {
     let minutes = outcome.elapsed.as_secs() / 60;
     let seconds = outcome.elapsed.as_secs() % 60;
@@ -570,5 +608,32 @@ mod tests {
         assert_eq!(cycle_pattern(first, -1).name, last);
         assert_eq!(cycle_pattern(first, 1).name, PATTERNS[1].name);
         assert_eq!(cycle_pattern("wobble", 0).name, first);
+    }
+
+    #[test]
+    fn q_esc_and_ctrl_c_all_quit() {
+        let keymap = Keymap::default();
+        let char_key = |c| event::KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+
+        assert_eq!(classify_key(&char_key('q'), &keymap), KeyOutcome::Quit);
+        assert_eq!(
+            classify_key(
+                &event::KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+                &keymap
+            ),
+            KeyOutcome::Quit
+        );
+        assert_eq!(
+            classify_key(
+                &event::KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+                &keymap
+            ),
+            KeyOutcome::Quit
+        );
+        assert_eq!(
+            classify_key(&char_key('n'), &keymap),
+            KeyOutcome::Act(Action::NextPattern)
+        );
+        assert_eq!(classify_key(&char_key('Z'), &keymap), KeyOutcome::Ignore);
     }
 }
