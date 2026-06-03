@@ -30,6 +30,10 @@ pub struct Cli {
     #[arg(long)]
     pub reduce_motion: bool,
 
+    /// Mirror the breathing into the terminal tab/window title (also: tab_title in config).
+    #[arg(long)]
+    pub title: bool,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }

@@ -13,6 +13,7 @@ use crate::render::{renderer_for, Surface};
 use crate::state::State;
 use crate::streak;
 use crate::term::{Capabilities, Env, SystemEnv};
+use crate::title;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{cursor, execute, queue};
@@ -164,6 +165,32 @@ fn title_case(name: &str) -> String {
     }
 }
 
+/// Whether to mirror the breath into the terminal title this session.
+fn title_enabled(cli: &Cli, config: &Config) -> bool {
+    cli.title || config.tab_title.unwrap_or(false)
+}
+
+/// Pushes the terminal's title onto its stack on creation and pops it on drop,
+/// so the user's original tab name returns on every exit path (including panic).
+struct TitleGuard;
+
+impl TitleGuard {
+    fn enter() -> TitleGuard {
+        let mut out = io::stdout();
+        let _ = out.write_all(title::PUSH_TITLE.as_bytes());
+        let _ = out.flush();
+        TitleGuard
+    }
+}
+
+impl Drop for TitleGuard {
+    fn drop(&mut self) {
+        let mut out = io::stdout();
+        let _ = out.write_all(title::POP_TITLE.as_bytes());
+        let _ = out.flush();
+    }
+}
+
 /// Restores the terminal on every exit path, including a panic unwind.
 struct TerminalGuard;
 
@@ -250,9 +277,12 @@ pub fn run(cli: &Cli) -> i32 {
         }
     };
 
+    let title_guard = title_enabled(cli, &config).then(TitleGuard::enter);
+
     let session = Session::start(cli, &config, &state, &data_dir, mode);
     let outcome = session.run_loop();
 
+    drop(title_guard);
     drop(_guard);
     let _ = State {
         last_pattern: Some(outcome.pattern_name.clone()),
@@ -291,6 +321,8 @@ struct Session {
     bells: Vec<(String, PathBuf)>,
     bell_idx: Option<usize>,
     bell_samples: Option<Arc<Vec<f32>>>,
+    title_enabled: bool,
+    last_title: String,
 }
 
 struct Outcome {
@@ -343,6 +375,8 @@ impl Session {
             bells: pack::cached_files(data_dir, AssetKind::Bell),
             bell_idx: None,
             bell_samples: None,
+            title_enabled: title_enabled(cli, config),
+            last_title: String::new(),
         };
         session.restore(config, state);
         // Opening strike — uses the restored bell if one was selected, else synth.
@@ -425,6 +459,7 @@ impl Session {
             }
 
             let state = self.breath.tick(now);
+            self.update_title(state);
             if state.breath_count > last_breath {
                 ripples.push(0.0);
                 last_breath = state.breath_count;
@@ -662,6 +697,22 @@ impl Session {
         match &self.bell_samples {
             Some(samples) => self.audio.play_bell(Arc::clone(samples)),
             None => self.audio.bell(),
+        }
+    }
+
+    /// Mirror the breath into the terminal title, writing the OSC sequence only
+    /// when the rendered line changes — which throttles it to a handful of
+    /// updates per breath rather than once per frame.
+    fn update_title(&mut self, state: breath::PhaseState) {
+        if !self.title_enabled {
+            return;
+        }
+        let next = title::breath_title(state);
+        if next != self.last_title {
+            let mut out = io::stdout();
+            let _ = out.write_all(title::set_sequence(&next).as_bytes());
+            let _ = out.flush();
+            self.last_title = next;
         }
     }
 

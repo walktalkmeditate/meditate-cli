@@ -54,7 +54,12 @@ meditate box             # start with a specific pattern
 meditate --for 5m        # a timed session, ending with a soft bell
 meditate --breaths 10    # end after ten breaths
 meditate --reduce-motion # calmer, slower motion
+meditate --title         # mirror the breath into the tab title (glanceable from another tab)
 ```
+
+`--title` shows a block that rises and falls with the breath in your terminal's
+tab/window title, so an inactive `meditate` tab still paces you while you work
+elsewhere. Opt-in (or set `tab_title` in config); in tmux, add `set -g set-titles on`.
 
 While breathing: `n` next pattern · `s` soundscape · `v` voice · `b` bell ·
 `m` mute · `+`/`-` volume · `space` pause · `f` focus · `q` quit (Ctrl-C also
@@ -67,7 +72,7 @@ Coherent (5/5) · Deep calm (3/6) · None (open focus).
 downloads at all):
 
 ```sh
-meditate download soundscapes   # ambient loops      — press s to cycle
+meditate download soundscapes   # ambient loops       — press s to cycle
 meditate download voices        # meditation guides   — press v to cycle
 meditate download bells         # start/end bells     — press b to cycle (synth stays the default)
 ```

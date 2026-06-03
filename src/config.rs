@@ -22,6 +22,7 @@ pub struct Config {
     pub door_enabled: Option<bool>,
     pub nudges_enabled: Option<bool>,
     pub reduce_motion: Option<bool>,
+    pub tab_title: Option<bool>,
     pub keymap: BTreeMap<String, String>,
 }
 
@@ -103,6 +104,11 @@ pub fn default_template() -> &'static str {
 
 # Slower, calmer motion (also: --reduce-motion, or the REDUCE_MOTION env var).
 # reduce_motion = false
+
+# Mirror the breathing into the terminal tab/window title — a block that rises
+# and falls with the breath, so an inactive tab still paces you (also: --title).
+# In tmux, enable it with:  set -g set-titles on
+# tab_title = false
 
 # ── Sound packs ──────────────────────────────────────────────────────────────
 # Download packs first, e.g.  meditate download soundscapes
