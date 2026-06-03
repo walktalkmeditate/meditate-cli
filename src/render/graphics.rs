@@ -15,8 +15,9 @@ use crate::render::Surface;
 /// kitty caps escape payloads at 4096 bytes per chunk.
 const CHUNK: usize = 4096;
 
-/// One kitty image id we reuse every frame, replacing its pixels in place.
+/// One kitty image + placement id we reuse every frame, replacing both in place.
 const IMAGE_ID: u32 = 1;
+const PLACEMENT_ID: u32 = 1;
 
 /// Hard cap on the transmitted image's long edge. The protocol scales the image
 /// into the cell region regardless, so a huge terminal never streams an enormous
@@ -73,12 +74,13 @@ impl ImageRenderer for KittyRenderer {
     fn frame(&self, surface: &Surface, cols: usize, rows: usize) -> String {
         let payload = base64(&rgba(surface));
         let mut out = String::new();
-        // Drop the previous frame's placements so frames don't stack.
-        out.push_str(&format!("\x1b_Ga=d,d=i,i={IMAGE_ID}\x1b\\"));
-        // C=1 keeps the cursor put; q=2 silences kitty's acknowledgements (we
-        // never read them back from raw mode).
+        // Re-transmit to the same image and placement id every frame so kitty
+        // replaces it in place. Deleting the old frame first (a=d) leaves a
+        // one-frame gap where the cells go blank — that's the flicker. C=1 keeps
+        // the cursor put; q=2 silences kitty's acknowledgements (we never read
+        // them back from raw mode).
         let keys = format!(
-            "a=T,f=32,s={},v={},i={IMAGE_ID},c={cols},r={rows},C=1,q=2",
+            "a=T,f=32,s={},v={},i={IMAGE_ID},p={PLACEMENT_ID},c={cols},r={rows},C=1,q=2",
             surface.width(),
             surface.height()
         );
@@ -241,14 +243,16 @@ mod tests {
     }
 
     #[test]
-    fn kitty_frame_deletes_then_transmits_and_places() {
+    fn kitty_frame_replaces_in_place_without_a_delete() {
         let mut surface = Surface::new(2, 2, Rgb::new(10, 20, 30));
         surface.set(0, 0, Rgb::new(255, 0, 0));
         let escapes = KittyRenderer::new().frame(&surface, 4, 3);
 
-        let delete = escapes.find("a=d,d=i").expect("delete escape");
-        let transmit = escapes.find("a=T").expect("transmit escape");
-        assert!(delete < transmit, "must delete before placing");
+        assert!(escapes.contains("a=T"));
+        // Same image + placement id each frame -> replaced in place.
+        assert!(escapes.contains("i=1,p=1"));
+        // No per-frame delete: that's what causes the one-frame flicker.
+        assert!(!escapes.contains("a=d"));
         assert!(escapes.contains("s=2,v=2"));
         assert!(escapes.contains("c=4,r=3"));
         assert!(escapes.contains("f=32"));
