@@ -144,8 +144,13 @@ fn download_audio_packs(
     }
     let mut failures = 0;
     for asset in assets {
-        match pack::download_audio(fetcher, cache, kind, &asset.id) {
-            Ok(path) => println!("Downloaded {} → {}", asset.id, path.display()),
+        match pack::download_audio_asset(fetcher, cache, kind, asset) {
+            Ok(pack::DownloadOutcome::Downloaded(path)) => {
+                println!("Downloaded {} → {}", asset.id, path.display())
+            }
+            Ok(pack::DownloadOutcome::AlreadyCached(_)) => {
+                println!("Already have {}", asset.id)
+            }
             Err(err) => {
                 eprintln!("meditate: {} — {err}", asset.id);
                 failures += 1;
@@ -175,8 +180,13 @@ fn download_voice_packs(fetcher: &dyn pack::Fetcher, cache: &std::path::Path) ->
     }
     let mut failures = 0;
     for voice_pack in packs {
-        match pack::download_voice_pack(fetcher, cache, &voice_pack.id) {
-            Ok(dir) => println!("Downloaded {} → {}", voice_pack.id, dir.display()),
+        match pack::download_voice_pack_from(fetcher, cache, voice_pack) {
+            Ok(pack::DownloadOutcome::Downloaded(dir)) => {
+                println!("Downloaded {} → {}", voice_pack.id, dir.display())
+            }
+            Ok(pack::DownloadOutcome::AlreadyCached(_)) => {
+                println!("Already have {}", voice_pack.id)
+            }
             Err(err) => {
                 eprintln!("meditate: {} — {err}", voice_pack.id);
                 failures += 1;

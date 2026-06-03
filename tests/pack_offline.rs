@@ -1,7 +1,7 @@
 use meditate::pack::{
     available, download_audio, download_voice_pack, fetch_audio_manifest, fetch_voice_manifest,
-    load_voice_prompts, looks_like_audio, safe_component, verify, AssetKind, Fetcher, PackError,
-    AUDIO_BASE_URL, VOICE_BASE_URL,
+    load_voice_prompts, looks_like_audio, safe_component, verify, AssetKind, DownloadOutcome,
+    Fetcher, PackError, AUDIO_BASE_URL, VOICE_BASE_URL,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -140,14 +140,40 @@ fn audio_manifest_parses_flat_assets_filtered_by_type() {
 fn download_audio_builds_type_id_url_and_caches_atomically() {
     let dir = tempfile::tempdir().unwrap();
     let fetcher = audio_fetcher(aac(8));
-    let path = download_audio(&fetcher, dir.path(), AssetKind::Soundscape, "forest").unwrap();
+    let outcome = download_audio(&fetcher, dir.path(), AssetKind::Soundscape, "forest").unwrap();
 
+    assert!(matches!(outcome, DownloadOutcome::Downloaded(_)));
+    let path = outcome.path();
     assert!(path.ends_with("packs/soundscapes/forest.aac"));
     assert!(path.exists());
-    assert_eq!(std::fs::read(&path).unwrap(), aac(8));
+    assert_eq!(std::fs::read(path).unwrap(), aac(8));
     assert!(!path.with_extension("part").exists());
     assert!(fetcher.requested(&format!("{AUDIO_BASE_URL}/soundscape/forest.aac")));
     assert!(available(dir.path(), AssetKind::Soundscape).contains(&"forest".to_string()));
+}
+
+#[test]
+fn download_audio_skips_the_fetch_when_already_cached() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = download_audio(
+        &audio_fetcher(aac(8)),
+        dir.path(),
+        AssetKind::Soundscape,
+        "forest",
+    )
+    .unwrap();
+    assert!(matches!(first, DownloadOutcome::Downloaded(_)));
+
+    // A fetcher that serves the manifest but NOT the asset bytes: the second run
+    // must skip the fetch entirely and report it was already cached.
+    let manifest_only = FakeFetcher::new().with(
+        format!("{AUDIO_BASE_URL}/manifest.json"),
+        AUDIO_MANIFEST.as_bytes().to_vec(),
+    );
+    let second =
+        download_audio(&manifest_only, dir.path(), AssetKind::Soundscape, "forest").unwrap();
+    assert!(matches!(second, DownloadOutcome::AlreadyCached(_)));
+    assert!(!manifest_only.requested(&format!("{AUDIO_BASE_URL}/soundscape/forest.aac")));
 }
 
 #[test]
@@ -211,7 +237,9 @@ fn download_voice_pack_fetches_only_meditation_audio_never_walk() {
         .with(format!("{VOICE_BASE_URL}/gentle/med-settle.aac"), aac(8))
         .with(format!("{VOICE_BASE_URL}/gentle/med-close.aac"), aac(8));
 
-    let pack_dir = download_voice_pack(&fetcher, dir.path(), "gentle").unwrap();
+    let outcome = download_voice_pack(&fetcher, dir.path(), "gentle").unwrap();
+    assert!(matches!(outcome, DownloadOutcome::Downloaded(_)));
+    let pack_dir = outcome.path();
 
     // Both meditation prompts fetched and cached.
     assert!(fetcher.requested(&format!("{VOICE_BASE_URL}/gentle/med-settle.aac")));
@@ -230,8 +258,32 @@ fn download_voice_pack_fetches_only_meditation_audio_never_walk() {
     );
 
     // The prompt list is persisted for offline scheduling.
-    let prompts = load_voice_prompts(&pack_dir).expect("meditation.json persisted");
+    let prompts = load_voice_prompts(pack_dir).expect("meditation.json persisted");
     assert_eq!(prompts.len(), 2);
+}
+
+#[test]
+fn download_voice_pack_skips_prompts_already_cached() {
+    let dir = tempfile::tempdir().unwrap();
+    let full = FakeFetcher::new()
+        .with(
+            format!("{VOICE_BASE_URL}/manifest.json"),
+            VOICE_MANIFEST.as_bytes().to_vec(),
+        )
+        .with(format!("{VOICE_BASE_URL}/gentle/med-settle.aac"), aac(8))
+        .with(format!("{VOICE_BASE_URL}/gentle/med-close.aac"), aac(8));
+    let first = download_voice_pack(&full, dir.path(), "gentle").unwrap();
+    assert!(matches!(first, DownloadOutcome::Downloaded(_)));
+
+    // Re-run with only the manifest available: every prompt is cached, so no
+    // prompt audio is fetched and the pack reports already-cached.
+    let manifest_only = FakeFetcher::new().with(
+        format!("{VOICE_BASE_URL}/manifest.json"),
+        VOICE_MANIFEST.as_bytes().to_vec(),
+    );
+    let second = download_voice_pack(&manifest_only, dir.path(), "gentle").unwrap();
+    assert!(matches!(second, DownloadOutcome::AlreadyCached(_)));
+    assert!(!manifest_only.requested(&format!("{VOICE_BASE_URL}/gentle/med-settle.aac")));
 }
 
 #[test]

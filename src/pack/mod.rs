@@ -296,73 +296,124 @@ pub fn fetch_voice_manifest(fetcher: &dyn Fetcher) -> Result<VoiceManifest, Pack
     serde_json::from_slice(&bytes).map_err(|e| PackError::Manifest(e.to_string()))
 }
 
-/// Download one soundscape or bell: locate it in the audio manifest, fetch
-/// `{AUDIO_BASE_URL}/{type}/{id}.aac`, verify, and atomically cache it.
-pub fn download_audio(
+/// Whether a download fetched bytes or found the asset already cached.
+#[derive(Debug)]
+pub enum DownloadOutcome {
+    Downloaded(PathBuf),
+    AlreadyCached(PathBuf),
+}
+
+impl DownloadOutcome {
+    pub fn path(&self) -> &Path {
+        match self {
+            DownloadOutcome::Downloaded(p) | DownloadOutcome::AlreadyCached(p) => p,
+        }
+    }
+}
+
+/// Download a known soundscape or bell, skipping the fetch when it is already
+/// cached. The caller supplies the asset it already read from the manifest, so
+/// no second manifest fetch happens.
+pub fn download_audio_asset(
     fetcher: &dyn Fetcher,
     cache_dir: &Path,
     kind: AssetKind,
-    id: &str,
-) -> Result<PathBuf, PackError> {
-    let manifest = fetch_audio_manifest(fetcher)?;
-    let asset = manifest
-        .assets_for(kind)
-        .into_iter()
-        .find(|asset| asset.id == id)
-        .ok_or_else(|| PackError::UnknownAsset(id.to_string()))?;
-
+    asset: &AudioAsset,
+) -> Result<DownloadOutcome, PackError> {
     let dest = cache_path(cache_dir, kind, &asset.id)
         .ok_or_else(|| PackError::UnsafeName(asset.id.clone()))?;
+    if dest.exists() {
+        return Ok(DownloadOutcome::AlreadyCached(dest));
+    }
     let asset_type = kind
         .audio_type()
-        .ok_or_else(|| PackError::UnknownAsset(id.to_string()))?;
+        .ok_or_else(|| PackError::UnknownAsset(asset.id.clone()))?;
     let safe_id =
         safe_component(&asset.id).ok_or_else(|| PackError::UnsafeName(asset.id.clone()))?;
 
     let url = format!("{AUDIO_BASE_URL}/{asset_type}/{safe_id}.aac");
     let bytes = fetcher.get(&url)?;
     write_verified(&dest, &bytes, asset.file_size_bytes)?;
-    Ok(dest)
+    Ok(DownloadOutcome::Downloaded(dest))
 }
 
-/// Download a whole voice pack: fetch every meditation prompt to
+/// Download one soundscape or bell by id: locate it in the audio manifest, then
+/// fetch (or skip if already cached).
+pub fn download_audio(
+    fetcher: &dyn Fetcher,
+    cache_dir: &Path,
+    kind: AssetKind,
+    id: &str,
+) -> Result<DownloadOutcome, PackError> {
+    let manifest = fetch_audio_manifest(fetcher)?;
+    let asset = manifest
+        .assets_for(kind)
+        .into_iter()
+        .find(|asset| asset.id == id)
+        .ok_or_else(|| PackError::UnknownAsset(id.to_string()))?;
+    download_audio_asset(fetcher, cache_dir, kind, asset)
+}
+
+/// Download a voice pack the caller already read from the manifest: fetch each
+/// meditation prompt that is not already cached to
 /// `packs/voices/{packId}/{promptId}.aac`, then persist the prompt list as
-/// `meditation.json` so playback can schedule without re-fetching. Returns the
-/// pack directory.
+/// `meditation.json` for offline scheduling. `AlreadyCached` means every prompt
+/// (and the manifest) was already present.
+pub fn download_voice_pack_from(
+    fetcher: &dyn Fetcher,
+    cache_dir: &Path,
+    pack: &VoicePack,
+) -> Result<DownloadOutcome, PackError> {
+    if pack.meditation_prompts.is_empty() {
+        return Err(PackError::UnknownAsset(pack.id.clone()));
+    }
+    let safe_pack =
+        safe_component(&pack.id).ok_or_else(|| PackError::UnsafeName(pack.id.clone()))?;
+    let dir = voice_pack_dir(cache_dir, &pack.id)
+        .ok_or_else(|| PackError::UnsafeName(pack.id.clone()))?;
+
+    let mut fetched_any = false;
+    for prompt in &pack.meditation_prompts {
+        let safe_id =
+            safe_component(&prompt.id).ok_or_else(|| PackError::UnsafeName(prompt.id.clone()))?;
+        let dest = dir.join(format!("{safe_id}.aac"));
+        if dest.exists() {
+            continue;
+        }
+        let url = format!("{VOICE_BASE_URL}/{safe_pack}/{safe_id}.aac");
+        let bytes = fetcher.get(&url)?;
+        write_verified(&dest, &bytes, prompt.file_size_bytes)?;
+        fetched_any = true;
+    }
+
+    let meta_path = dir.join("meditation.json");
+    if fetched_any || !meta_path.exists() {
+        std::fs::create_dir_all(&dir)?;
+        let meta = serde_json::to_vec_pretty(&pack.meditation_prompts)
+            .map_err(|e| PackError::Manifest(e.to_string()))?;
+        std::fs::write(&meta_path, meta)?;
+    }
+
+    Ok(if fetched_any {
+        DownloadOutcome::Downloaded(dir)
+    } else {
+        DownloadOutcome::AlreadyCached(dir)
+    })
+}
+
+/// Download a voice pack by id (fetches the voice manifest to find it).
 pub fn download_voice_pack(
     fetcher: &dyn Fetcher,
     cache_dir: &Path,
     pack_id: &str,
-) -> Result<PathBuf, PackError> {
+) -> Result<DownloadOutcome, PackError> {
     let manifest = fetch_voice_manifest(fetcher)?;
     let pack = manifest
         .packs
         .iter()
         .find(|pack| pack.id == pack_id)
         .ok_or_else(|| PackError::UnknownAsset(pack_id.to_string()))?;
-    if pack.meditation_prompts.is_empty() {
-        return Err(PackError::UnknownAsset(pack_id.to_string()));
-    }
-
-    let safe_pack =
-        safe_component(&pack.id).ok_or_else(|| PackError::UnsafeName(pack.id.clone()))?;
-    let dir = voice_pack_dir(cache_dir, &pack.id)
-        .ok_or_else(|| PackError::UnsafeName(pack.id.clone()))?;
-
-    for prompt in &pack.meditation_prompts {
-        let safe_id =
-            safe_component(&prompt.id).ok_or_else(|| PackError::UnsafeName(prompt.id.clone()))?;
-        let url = format!("{VOICE_BASE_URL}/{safe_pack}/{safe_id}.aac");
-        let bytes = fetcher.get(&url)?;
-        let dest = dir.join(format!("{safe_id}.aac"));
-        write_verified(&dest, &bytes, prompt.file_size_bytes)?;
-    }
-
-    std::fs::create_dir_all(&dir)?;
-    let meta = serde_json::to_vec_pretty(&pack.meditation_prompts)
-        .map_err(|e| PackError::Manifest(e.to_string()))?;
-    std::fs::write(dir.join("meditation.json"), meta)?;
-    Ok(dir)
+    download_voice_pack_from(fetcher, cache_dir, pack)
 }
 
 /// Load the meditation prompts a downloaded voice pack persisted locally.
