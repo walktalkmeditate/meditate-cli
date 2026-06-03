@@ -3,12 +3,18 @@ name: release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to (re)publish the Homebrew formula for"
+        required: true
 
 permissions:
   contents: write
 
 jobs:
   build:
+    if: github.event_name == 'push'
     strategy:
       matrix:
         include:
@@ -66,6 +72,7 @@ jobs:
 
   release:
     needs: build
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8
@@ -81,5 +88,41 @@ jobs:
             dist/**/*.zip
             dist/checksums.txt
 
-  # Follow-up: publish a Homebrew formula to walktalkmeditate/homebrew-tap (cargo-dist
-  # can generate this) and add an aarch64-unknown-linux-gnu target via `cross`.
+  # Update the Homebrew tap formula from the published release. Runs after a
+  # successful release, or standalone via workflow_dispatch with a tag input.
+  homebrew:
+    needs: release
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.release.result == 'success')
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          repository: walktalkmeditate/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+      - name: Render and push the formula
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          sudo apt-get update && sudo apt-get install -y gettext-base
+          export VERSION="${TAG#v}"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern checksums.txt --output checksums.txt --clobber
+          sha() { grep " $1\$" checksums.txt | awk '{print $1}'; }
+          export SHA256_MAC_ARM="$(sha meditate-aarch64-apple-darwin.tar.gz)"
+          export SHA256_MAC_X86="$(sha meditate-x86_64-apple-darwin.tar.gz)"
+          export SHA256_LINUX_X86="$(sha meditate-x86_64-unknown-linux-gnu.tar.gz)"
+          test -n "$SHA256_MAC_ARM" && test -n "$SHA256_MAC_X86" && test -n "$SHA256_LINUX_X86"
+          envsubst '${VERSION} ${TAG} ${SHA256_MAC_ARM} ${SHA256_MAC_X86} ${SHA256_LINUX_X86}' \
+            < .github/meditate.rb.tpl > tap/Formula/meditate.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/meditate.rb
+          git commit -m "meditate $VERSION" || { echo "formula already current"; exit 0; }
+          git push
+
+  # Follow-up: add an aarch64-unknown-linux-gnu target via `cross`.
