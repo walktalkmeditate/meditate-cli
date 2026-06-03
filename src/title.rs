@@ -55,6 +55,12 @@ pub const PUSH_TITLE: &str = "\x1b[22;0t";
 /// Restore both titles from the stack.
 pub const POP_TITLE: &str = "\x1b[23;0t";
 
+/// A desktop-notification escape (OSC 9), understood by iTerm2, kitty, Ghostty,
+/// and WezTerm. Harmless where unsupported.
+pub fn notification(message: &str) -> String {
+    format!("\x1b]9;{message}\x07")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

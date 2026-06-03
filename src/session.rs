@@ -14,6 +14,7 @@ use crate::state::State;
 use crate::streak;
 use crate::term::{Capabilities, Env, SystemEnv};
 use crate::title;
+use crate::wait::{self, Waiter};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{cursor, execute, queue};
@@ -247,6 +248,17 @@ pub fn run(cli: &Cli) -> i32 {
         return 1;
     }
 
+    let waiter = match cli.until.as_deref() {
+        Some(command) => match Waiter::spawn(command) {
+            Ok(waiter) => Some(waiter),
+            Err(err) => {
+                eprintln!("meditate: could not start `{command}`: {err}");
+                return 1;
+            }
+        },
+        None => None,
+    };
+
     let pattern_name =
         crate::resolve_start_pattern(cli.pattern.map(|p| p.as_str()), &config, &state)
             .unwrap_or_else(|| "calm".to_string());
@@ -279,7 +291,8 @@ pub fn run(cli: &Cli) -> i32 {
 
     let title_guard = title_enabled(cli, &config).then(TitleGuard::enter);
 
-    let session = Session::start(cli, &config, &state, &data_dir, mode);
+    let mut session = Session::start(cli, &config, &state, &data_dir, mode);
+    session.waiting = waiter;
     let outcome = session.run_loop();
 
     drop(title_guard);
@@ -295,6 +308,15 @@ pub fn run(cli: &Cli) -> i32 {
 
     if streak_enabled {
         let _ = streak::record_session(&data_dir, session_day, outcome.elapsed.as_secs());
+    }
+
+    if let Some(report) = &outcome.wait_report {
+        wait::print_report(report);
+        if let Some(message) = wait::notify_message(report) {
+            let mut out = io::stdout();
+            let _ = out.write_all(title::notification(&message).as_bytes());
+            let _ = out.flush();
+        }
     }
 
     print_summary(&outcome);
@@ -323,6 +345,8 @@ struct Session {
     bell_samples: Option<Arc<Vec<f32>>>,
     title_enabled: bool,
     last_title: String,
+    waiting: Option<Waiter>,
+    wait_report: Option<wait::WaitReport>,
 }
 
 struct Outcome {
@@ -334,6 +358,7 @@ struct Outcome {
     soundscape: Option<String>,
     voice: Option<String>,
     bell: Option<String>,
+    wait_report: Option<wait::WaitReport>,
 }
 
 impl Session {
@@ -377,6 +402,8 @@ impl Session {
             bell_samples: None,
             title_enabled: title_enabled(cli, config),
             last_title: String::new(),
+            waiting: None,
+            wait_report: None,
         };
         session.restore(config, state);
         // Opening strike — uses the restored bell if one was selected, else synth.
@@ -476,6 +503,15 @@ impl Session {
 
             self.tick_voice(now.as_secs());
 
+            // The wrapped command finishing ends the session, just like a timer.
+            let finished = self.waiting.as_mut().and_then(|w| w.poll());
+            if let Some(report) = finished {
+                self.wait_report = Some(report);
+                self.waiting = None;
+                self.ring_current_bell();
+                break;
+            }
+
             if should_end(self.mode, now, state.breath_count) {
                 self.ring_current_bell();
                 break;
@@ -496,7 +532,11 @@ impl Session {
                     if key.kind != KeyEventKind::Release {
                         hint_until = Instant::now() + Duration::from_secs(4);
                         match classify_key(&key, &self.keymap) {
-                            KeyOutcome::Quit => break,
+                            KeyOutcome::Quit => {
+                                // Ctrl-C kills a wrapped command; q/Esc leaves it running.
+                                self.finish_wait(is_ctrl_c(&key));
+                                break;
+                            }
                             KeyOutcome::Act(action) => {
                                 if let Some(text) = self.apply(action, now) {
                                     message = text;
@@ -511,6 +551,7 @@ impl Session {
         }
 
         self.fade_out();
+        let wait_report = self.wait_report.take();
         Outcome {
             elapsed: start.elapsed(),
             breaths: self.breath.breath_count(),
@@ -520,6 +561,19 @@ impl Session {
             soundscape: self.soundscape_idx.map(|i| self.soundscapes[i].0.clone()),
             voice: self.voice_idx.map(|i| self.voices[i].0.clone()),
             bell: self.bell_idx.map(|i| self.bells[i].0.clone()),
+            wait_report,
+        }
+    }
+
+    /// End a wrapped-command wait on quit: Ctrl-C kills the command, q/Esc leaves
+    /// it running. No-op when nothing is being waited on.
+    fn finish_wait(&mut self, cancel: bool) {
+        if let Some(waiter) = self.waiting.take() {
+            self.wait_report = Some(if cancel {
+                waiter.cancel()
+            } else {
+                waiter.detach()
+            });
         }
     }
 
@@ -776,6 +830,10 @@ impl Session {
             state.phase.label(),
             state.breath_count
         );
+        if let Some(waiter) = &self.waiting {
+            line.push_str("  ·  ⏳ ");
+            line.push_str(&truncate_command(waiter.command()));
+        }
         if !message.is_empty() {
             line.push_str("  ·  ");
             line.push_str(message);
@@ -817,6 +875,22 @@ impl Session {
 fn is_quit(key: &event::KeyEvent) -> bool {
     matches!(key.code, KeyCode::Esc)
         || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))
+}
+
+fn is_ctrl_c(key: &event::KeyEvent) -> bool {
+    key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)
+}
+
+/// Shorten a command for the status bar so a long pipeline doesn't overflow.
+fn truncate_command(command: &str) -> String {
+    const MAX: usize = 28;
+    let command = command.trim();
+    if command.chars().count() > MAX {
+        let head: String = command.chars().take(MAX - 1).collect();
+        format!("{head}…")
+    } else {
+        command.to_string()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]

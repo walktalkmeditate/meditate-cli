@@ -55,7 +55,13 @@ meditate --for 5m        # a timed session, ending with a soft bell
 meditate --breaths 10    # end after ten breaths
 meditate --reduce-motion # calmer, slower motion
 meditate --title         # mirror the breath into the tab title (glanceable from another tab)
+meditate --until "cargo build"   # breathe until a command finishes, then ring + notify
 ```
+
+**Breathe while you wait:** `--until "<command>"` runs the command, breathes you
+through the wait, and rings + fires a desktop notification when it finishes —
+`✓` on success, `✗` with the error tail on failure. `q` leaves the command
+running; Ctrl-C cancels it. Turns a slow build or deploy into a breath.
 
 `--title` shows a block that rises and falls with the breath in your terminal's
 tab/window title, so an inactive `meditate` tab still paces you while you work

@@ -14,6 +14,7 @@ pub mod state;
 pub mod streak;
 pub mod term;
 pub mod title;
+pub mod wait;
 
 use cli::{Cli, Command, ConfigAction, DownloadArgs, IntegrationAction, StreakAction};
 use config::Config;

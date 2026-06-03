@@ -34,6 +34,10 @@ pub struct Cli {
     #[arg(long)]
     pub title: bool,
 
+    /// Breathe until this shell command finishes, then ring + notify (e.g. --until "cargo build").
+    #[arg(long, value_name = "COMMAND")]
+    pub until: Option<String>,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }
