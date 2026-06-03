@@ -15,7 +15,9 @@ jobs:
           - os: macos-14
             target: aarch64-apple-darwin
             archive: tar.gz
-          - os: macos-13
+          # Cross-compiled on the arm64 runner — GitHub's Intel macOS runners
+          # are scarce and being retired.
+          - os: macos-14
             target: x86_64-apple-darwin
             archive: tar.gz
           - os: ubuntu-latest
@@ -26,7 +28,7 @@ jobs:
             archive: zip
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -57,7 +59,7 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 "$staging.zip").Hash.ToLower()
           "$hash  $staging.zip" | Out-File "$staging.sha256" -Encoding ascii
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}
           path: meditate-${{ matrix.target }}.*
@@ -66,17 +68,17 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
       - name: Assemble checksums.txt
-        run: cat dist/*.sha256 > dist/checksums.txt
-      - uses: softprops/action-gh-release@v2
+        run: find dist -name '*.sha256' -exec cat {} + > dist/checksums.txt
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
-            dist/*.tar.gz
-            dist/*.zip
+            dist/**/*.tar.gz
+            dist/**/*.zip
             dist/checksums.txt
 
   # Follow-up: publish a Homebrew formula to walktalkmeditate/homebrew-tap (cargo-dist
