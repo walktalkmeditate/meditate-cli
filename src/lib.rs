@@ -117,30 +117,73 @@ fn cmd_download(args: &DownloadArgs) -> i32 {
             }
         };
         let fetcher = pack::HttpFetcher::new();
-        let manifest = match pack::fetch_manifest(&fetcher, pack::DEFAULT_BASE_URL) {
-            Ok(manifest) => manifest,
-            Err(err) => {
-                eprintln!("meditate: {err}");
-                return 1;
-            }
-        };
-        let assets = manifest.assets_for(kind);
-        if assets.is_empty() {
-            println!("No {} available right now.", kind.dir());
-            return 0;
+        match kind {
+            pack::AssetKind::Voice => download_voice_packs(&fetcher, &cache),
+            _ => download_audio_packs(&fetcher, &cache, kind),
         }
-        let mut failures = 0;
-        for asset in assets {
-            match pack::download(&fetcher, pack::DEFAULT_BASE_URL, &cache, kind, &asset.id) {
-                Ok(path) => println!("Downloaded {} → {}", asset.id, path.display()),
-                Err(err) => {
-                    eprintln!("meditate: {} — {err}", asset.id);
-                    failures += 1;
-                }
-            }
-        }
-        i32::from(failures > 0)
     }
+}
+
+#[cfg(feature = "download")]
+fn download_audio_packs(
+    fetcher: &dyn pack::Fetcher,
+    cache: &std::path::Path,
+    kind: pack::AssetKind,
+) -> i32 {
+    let manifest = match pack::fetch_audio_manifest(fetcher) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            eprintln!("meditate: {err}");
+            return 1;
+        }
+    };
+    let assets = manifest.assets_for(kind);
+    if assets.is_empty() {
+        println!("No {} available right now.", kind.dir());
+        return 0;
+    }
+    let mut failures = 0;
+    for asset in assets {
+        match pack::download_audio(fetcher, cache, kind, &asset.id) {
+            Ok(path) => println!("Downloaded {} → {}", asset.id, path.display()),
+            Err(err) => {
+                eprintln!("meditate: {} — {err}", asset.id);
+                failures += 1;
+            }
+        }
+    }
+    i32::from(failures > 0)
+}
+
+#[cfg(feature = "download")]
+fn download_voice_packs(fetcher: &dyn pack::Fetcher, cache: &std::path::Path) -> i32 {
+    let manifest = match pack::fetch_voice_manifest(fetcher) {
+        Ok(manifest) => manifest,
+        Err(err) => {
+            eprintln!("meditate: {err}");
+            return 1;
+        }
+    };
+    let packs: Vec<_> = manifest
+        .packs
+        .iter()
+        .filter(|pack| !pack.meditation_prompts.is_empty())
+        .collect();
+    if packs.is_empty() {
+        println!("No voices available right now.");
+        return 0;
+    }
+    let mut failures = 0;
+    for voice_pack in packs {
+        match pack::download_voice_pack(fetcher, cache, &voice_pack.id) {
+            Ok(dir) => println!("Downloaded {} → {}", voice_pack.id, dir.display()),
+            Err(err) => {
+                eprintln!("meditate: {} — {err}", voice_pack.id);
+                failures += 1;
+            }
+        }
+    }
+    i32::from(failures > 0)
 }
 
 fn cmd_integration(action: &IntegrationAction) -> i32 {

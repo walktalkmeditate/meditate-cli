@@ -1,4 +1,4 @@
-use crate::pack::{AudioAsset, MeditationPrompt};
+use crate::pack::{MeditationPrompt, VoicePack};
 
 // Phase windows re-tuned for the CLI's shorter sessions. iOS originals (which
 // would never fire in a sub-20-minute sit) are recorded for reference:
@@ -35,8 +35,8 @@ pub fn prompt_phase(elapsed_secs: u64) -> VoicePhase {
 
 /// A voice pack is only offered if it carries meditation prompts. Walk prompts
 /// are excluded structurally — the manifest model never deserializes them.
-pub fn has_meditation_prompts(asset: &AudioAsset) -> bool {
-    !asset.meditation_prompts.is_empty()
+pub fn has_meditation_prompts(pack: &VoicePack) -> bool {
+    !pack.meditation_prompts.is_empty()
 }
 
 fn phase_matches(prompt_phase: &str, current: VoicePhase) -> bool {
@@ -85,7 +85,10 @@ impl VoiceScheduler {
         let pick = self
             .prompts
             .iter()
-            .find(|prompt| !self.played.contains(&prompt.id) && phase_matches(&prompt.phase, phase))
+            .find(|prompt| {
+                !self.played.contains(&prompt.id)
+                    && phase_matches(prompt.phase.as_deref().unwrap_or(""), phase)
+            })
             .cloned()?;
 
         self.played.push(pick.id.clone());

@@ -1,12 +1,17 @@
 pub mod soundscape;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// Base URL of the Pilgrim audio CDN. **Confirm this against the live manifest**
-/// — the manifest is expected at `{BASE}/manifest.json` and each asset at
-/// `{BASE}/{r2Key}`.
-pub const DEFAULT_BASE_URL: &str = "https://cdn.pilgrimapp.org/audio";
+/// CDN base for soundscapes + bells. The audio manifest lives at
+/// `{AUDIO_BASE_URL}/manifest.json`; each file at `{AUDIO_BASE_URL}/{type}/{id}.aac`.
+/// Mirrors `Config.Audio` in pilgrim-ios.
+pub const AUDIO_BASE_URL: &str = "https://cdn.pilgrimapp.org/audio";
+
+/// CDN base for voice guides. The voice manifest lives at
+/// `{VOICE_BASE_URL}/manifest.json`; each prompt at `{VOICE_BASE_URL}/{packId}/{promptId}.aac`.
+/// Mirrors `Config.VoiceGuide` in pilgrim-ios.
+pub const VOICE_BASE_URL: &str = "https://cdn.pilgrimapp.org/voiceguide";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AssetKind {
@@ -16,11 +21,22 @@ pub enum AssetKind {
 }
 
 impl AssetKind {
+    /// The cache subdirectory name.
     pub fn dir(self) -> &'static str {
         match self {
             AssetKind::Soundscape => "soundscapes",
             AssetKind::Voice => "voices",
             AssetKind::Bell => "bells",
+        }
+    }
+
+    /// The `type` discriminator used in the audio manifest. Voices live in a
+    /// separate manifest and have no audio-manifest type.
+    pub fn audio_type(self) -> Option<&'static str> {
+        match self {
+            AssetKind::Soundscape => Some("soundscape"),
+            AssetKind::Bell => Some("bell"),
+            AssetKind::Voice => None,
         }
     }
 
@@ -34,53 +50,100 @@ impl AssetKind {
     }
 }
 
-/// One downloadable asset. Field names mirror Pilgrim's `AudioAsset` schema.
+/// One soundscape or bell. Field names mirror pilgrim-ios `AudioAsset`. The
+/// download URL is built from `type` + `id`, not `r2Key`.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct AudioAsset {
     pub id: String,
     #[serde(rename = "type", default)]
     pub kind: String,
+    #[serde(default)]
+    pub name: String,
     #[serde(rename = "displayName", default)]
     pub display_name: String,
     #[serde(rename = "durationSec", default)]
     pub duration_sec: f64,
-    #[serde(rename = "fileSizeBytes")]
-    pub file_size_bytes: u64,
-    #[serde(rename = "r2Key")]
+    #[serde(rename = "r2Key", default)]
     pub r2_key: String,
-    #[serde(rename = "meditationPrompts", default)]
+    #[serde(rename = "fileSizeBytes", default)]
+    pub file_size_bytes: u64,
+    #[serde(rename = "usageTags", default, deserialize_with = "null_as_default")]
+    pub usage_tags: Vec<String>,
+}
+
+/// The audio manifest: a flat asset list discriminated by `type`. Mirrors
+/// pilgrim-ios `AudioManifest`.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct AudioManifest {
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub assets: Vec<AudioAsset>,
+}
+
+impl AudioManifest {
+    /// Assets matching a kind's `type`. Returns empty for `Voice` (a different
+    /// manifest).
+    pub fn assets_for(&self, kind: AssetKind) -> Vec<&AudioAsset> {
+        match kind.audio_type() {
+            Some(want) => self.assets.iter().filter(|a| a.kind == want).collect(),
+            None => Vec::new(),
+        }
+    }
+}
+
+/// A single meditation voice prompt. Mirrors the meditation subset of
+/// pilgrim-ios `VoiceGuidePrompt`; walk prompts are never deserialized here.
+/// Serializable so a downloaded pack can persist its prompt list locally.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct MeditationPrompt {
+    pub id: String,
+    #[serde(default)]
+    pub seq: u32,
+    #[serde(rename = "durationSec", default)]
+    pub duration_sec: f64,
+    #[serde(rename = "fileSizeBytes", default)]
+    pub file_size_bytes: u64,
+    #[serde(rename = "r2Key", default)]
+    pub r2_key: String,
+    #[serde(default)]
+    pub phase: Option<String>,
+}
+
+/// A voice guide pack. Only the fields the CLI needs are modeled — the rest of
+/// pilgrim-ios `VoiceGuidePack` (walk prompts, scheduling, theme, …) is ignored.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct VoicePack {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub tagline: String,
+    #[serde(
+        rename = "meditationPrompts",
+        default,
+        deserialize_with = "null_as_default"
+    )]
     pub meditation_prompts: Vec<MeditationPrompt>,
 }
 
-/// A single meditation voice prompt (consumed by the voice scheduler). Walk
-/// prompts are absent here by construction — only the meditation set is modeled.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct MeditationPrompt {
-    pub id: String,
-    #[serde(rename = "r2Key")]
-    pub r2_key: String,
-    #[serde(default)]
-    pub phase: String,
-}
-
+/// The voice manifest. Mirrors pilgrim-ios `VoiceGuideManifest`.
 #[derive(Debug, Clone, Default, Deserialize)]
-pub struct Manifest {
+pub struct VoiceManifest {
     #[serde(default)]
-    pub soundscapes: Vec<AudioAsset>,
+    pub version: String,
     #[serde(default)]
-    pub voices: Vec<AudioAsset>,
-    #[serde(default)]
-    pub bells: Vec<AudioAsset>,
+    pub packs: Vec<VoicePack>,
 }
 
-impl Manifest {
-    pub fn assets_for(&self, kind: AssetKind) -> &[AudioAsset] {
-        match kind {
-            AssetKind::Soundscape => &self.soundscapes,
-            AssetKind::Voice => &self.voices,
-            AssetKind::Bell => &self.bells,
-        }
-    }
+/// Deserialize a value that may be JSON `null` into `T::default()` rather than
+/// erroring — the manifest marks optional arrays as nullable.
+fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Default + Deserialize<'de>,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 #[derive(Debug)]
@@ -123,7 +186,7 @@ pub trait Fetcher {
     fn get(&self, url: &str) -> Result<Vec<u8>, PackError>;
 }
 
-/// Validate a single path component against an allowlist (no separators, no
+/// Validate a single path/URL component against an allowlist (no separators, no
 /// `..`), the defense against path-traversal and zip-slip via manifest names.
 pub fn safe_component(name: &str) -> Option<String> {
     let ok = !name.is_empty()
@@ -135,44 +198,38 @@ pub fn safe_component(name: &str) -> Option<String> {
     ok.then(|| name.to_string())
 }
 
-/// Validate a manifest `r2Key` before it is used to build a download URL:
-/// relative, no `..`/`.`/empty/absolute segments, allowlisted characters
-/// (forward slashes permitted, unlike `safe_component`).
-pub fn safe_r2_key(key: &str) -> bool {
-    !key.is_empty()
-        && !key.starts_with('/')
-        && key
-            .split('/')
-            .all(|seg| !seg.is_empty() && seg != ".." && seg != ".")
-        && key
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '/'))
+/// Recognize common audio container magic bytes. Stands in as the integrity
+/// "decode probe" — a real decode happens at playback.
+pub fn looks_like_audio(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"OggS")
+        || bytes.starts_with(b"ID3")
+        || bytes.starts_with(b"fLaC")
+        || bytes.starts_with(b"RIFF")
+        || bytes.starts_with(&[0xFF, 0xF1])
+        || bytes.starts_with(&[0xFF, 0xF9])
+        || (bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] & 0xE0 == 0xE0)
+        || (bytes.len() >= 8 && &bytes[4..8] == b"ftyp")
 }
 
-fn extension(r2_key: &str) -> Option<&str> {
-    r2_key
-        .rsplit('.')
-        .next()
-        .filter(|ext| !ext.is_empty() && ext.chars().all(|c| c.is_ascii_alphanumeric()))
-}
-
-pub fn cache_path(cache_dir: &Path, kind: AssetKind, asset: &AudioAsset) -> Option<PathBuf> {
-    let id = safe_component(&asset.id)?;
-    let ext = extension(&asset.r2_key)?;
+/// Where a soundscape or bell is cached: `packs/{dir}/{id}.aac`.
+pub fn cache_path(cache_dir: &Path, kind: AssetKind, id: &str) -> Option<PathBuf> {
+    let id = safe_component(id)?;
     Some(
         cache_dir
             .join("packs")
             .join(kind.dir())
-            .join(format!("{id}.{ext}")),
+            .join(format!("{id}.aac")),
     )
 }
 
-pub fn cached(cache_dir: &Path, kind: AssetKind, asset: &AudioAsset) -> Option<PathBuf> {
-    cache_path(cache_dir, kind, asset).filter(|path| path.exists())
+/// The directory holding a downloaded voice pack: `packs/voices/{packId}`.
+pub fn voice_pack_dir(cache_dir: &Path, pack_id: &str) -> Option<PathBuf> {
+    let pack_id = safe_component(pack_id)?;
+    Some(cache_dir.join("packs").join("voices").join(pack_id))
 }
 
-/// List cached assets for a kind as (id, path) pairs, sorted by id. Skips the
-/// `.part` quarantine files.
+/// List cached files for a kind as (id, path) pairs, sorted by id. Skips the
+/// `.part` quarantine files. For voices this lists pack directories.
 pub fn cached_files(cache_dir: &Path, kind: AssetKind) -> Vec<(String, PathBuf)> {
     let dir = cache_dir.join("packs").join(kind.dir());
     let mut files: Vec<(String, PathBuf)> = std::fs::read_dir(dir)
@@ -200,23 +257,12 @@ pub fn available(cache_dir: &Path, kind: AssetKind) -> Vec<String> {
         .collect()
 }
 
-/// Recognize common audio container magic bytes. Stands in as the integrity
-/// "decode probe" — a real decode happens at playback.
-pub fn looks_like_audio(bytes: &[u8]) -> bool {
-    bytes.starts_with(b"OggS")
-        || bytes.starts_with(b"ID3")
-        || bytes.starts_with(b"fLaC")
-        || bytes.starts_with(b"RIFF")
-        || bytes.starts_with(&[0xFF, 0xF1])
-        || bytes.starts_with(&[0xFF, 0xF9])
-        || (bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] & 0xE0 == 0xE0)
-        || (bytes.len() >= 8 && &bytes[4..8] == b"ftyp")
-}
-
-pub fn verify(bytes: &[u8], asset: &AudioAsset) -> Result<(), PackError> {
-    if bytes.len() as u64 != asset.file_size_bytes {
+/// Size + magic-byte integrity gate. A zero `expected` size means the manifest
+/// omitted it, so only the magic-byte check applies.
+pub fn verify(bytes: &[u8], expected_size: u64) -> Result<(), PackError> {
+    if expected_size != 0 && bytes.len() as u64 != expected_size {
         return Err(PackError::SizeMismatch {
-            expected: asset.file_size_bytes,
+            expected: expected_size,
             actual: bytes.len() as u64,
         });
     }
@@ -226,43 +272,103 @@ pub fn verify(bytes: &[u8], asset: &AudioAsset) -> Result<(), PackError> {
     Ok(())
 }
 
-pub fn fetch_manifest(fetcher: &dyn Fetcher, base_url: &str) -> Result<Manifest, PackError> {
-    let bytes = fetcher.get(&format!("{base_url}/manifest.json"))?;
-    serde_json::from_slice(&bytes).map_err(|e| PackError::Manifest(e.to_string()))
-}
-
-/// Download one asset: fetch the manifest, locate the asset, fetch and verify
-/// its bytes in memory, then write to a `.part` file and atomically rename. A
-/// failed verification never writes anything, so the cache is never poisoned.
-pub fn download(
-    fetcher: &dyn Fetcher,
-    base_url: &str,
-    cache_dir: &Path,
-    kind: AssetKind,
-    id: &str,
-) -> Result<PathBuf, PackError> {
-    let manifest = fetch_manifest(fetcher, base_url)?;
-    let asset = manifest
-        .assets_for(kind)
-        .iter()
-        .find(|asset| asset.id == id)
-        .ok_or_else(|| PackError::UnknownAsset(id.to_string()))?;
-
-    let dest = cache_path(cache_dir, kind, asset)
-        .ok_or_else(|| PackError::UnsafeName(asset.id.clone()))?;
-    if !safe_r2_key(&asset.r2_key) {
-        return Err(PackError::UnsafeName(asset.r2_key.clone()));
-    }
-    let bytes = fetcher.get(&format!("{base_url}/{}", asset.r2_key))?;
-    verify(&bytes, asset)?;
-
+/// Verify bytes, then write them through a `.part` quarantine and atomically
+/// rename into place. A failed verification never writes, so the cache is never
+/// poisoned by a partial or corrupt file.
+fn write_verified(dest: &Path, bytes: &[u8], expected_size: u64) -> Result<(), PackError> {
+    verify(bytes, expected_size)?;
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let part = dest.with_extension("part");
-    std::fs::write(&part, &bytes)?;
-    std::fs::rename(&part, &dest)?;
+    std::fs::write(&part, bytes)?;
+    std::fs::rename(&part, dest)?;
+    Ok(())
+}
+
+pub fn fetch_audio_manifest(fetcher: &dyn Fetcher) -> Result<AudioManifest, PackError> {
+    let bytes = fetcher.get(&format!("{AUDIO_BASE_URL}/manifest.json"))?;
+    serde_json::from_slice(&bytes).map_err(|e| PackError::Manifest(e.to_string()))
+}
+
+pub fn fetch_voice_manifest(fetcher: &dyn Fetcher) -> Result<VoiceManifest, PackError> {
+    let bytes = fetcher.get(&format!("{VOICE_BASE_URL}/manifest.json"))?;
+    serde_json::from_slice(&bytes).map_err(|e| PackError::Manifest(e.to_string()))
+}
+
+/// Download one soundscape or bell: locate it in the audio manifest, fetch
+/// `{AUDIO_BASE_URL}/{type}/{id}.aac`, verify, and atomically cache it.
+pub fn download_audio(
+    fetcher: &dyn Fetcher,
+    cache_dir: &Path,
+    kind: AssetKind,
+    id: &str,
+) -> Result<PathBuf, PackError> {
+    let manifest = fetch_audio_manifest(fetcher)?;
+    let asset = manifest
+        .assets_for(kind)
+        .into_iter()
+        .find(|asset| asset.id == id)
+        .ok_or_else(|| PackError::UnknownAsset(id.to_string()))?;
+
+    let dest = cache_path(cache_dir, kind, &asset.id)
+        .ok_or_else(|| PackError::UnsafeName(asset.id.clone()))?;
+    let asset_type = kind
+        .audio_type()
+        .ok_or_else(|| PackError::UnknownAsset(id.to_string()))?;
+    let safe_id =
+        safe_component(&asset.id).ok_or_else(|| PackError::UnsafeName(asset.id.clone()))?;
+
+    let url = format!("{AUDIO_BASE_URL}/{asset_type}/{safe_id}.aac");
+    let bytes = fetcher.get(&url)?;
+    write_verified(&dest, &bytes, asset.file_size_bytes)?;
     Ok(dest)
+}
+
+/// Download a whole voice pack: fetch every meditation prompt to
+/// `packs/voices/{packId}/{promptId}.aac`, then persist the prompt list as
+/// `meditation.json` so playback can schedule without re-fetching. Returns the
+/// pack directory.
+pub fn download_voice_pack(
+    fetcher: &dyn Fetcher,
+    cache_dir: &Path,
+    pack_id: &str,
+) -> Result<PathBuf, PackError> {
+    let manifest = fetch_voice_manifest(fetcher)?;
+    let pack = manifest
+        .packs
+        .iter()
+        .find(|pack| pack.id == pack_id)
+        .ok_or_else(|| PackError::UnknownAsset(pack_id.to_string()))?;
+    if pack.meditation_prompts.is_empty() {
+        return Err(PackError::UnknownAsset(pack_id.to_string()));
+    }
+
+    let safe_pack =
+        safe_component(&pack.id).ok_or_else(|| PackError::UnsafeName(pack.id.clone()))?;
+    let dir = voice_pack_dir(cache_dir, &pack.id)
+        .ok_or_else(|| PackError::UnsafeName(pack.id.clone()))?;
+
+    for prompt in &pack.meditation_prompts {
+        let safe_id =
+            safe_component(&prompt.id).ok_or_else(|| PackError::UnsafeName(prompt.id.clone()))?;
+        let url = format!("{VOICE_BASE_URL}/{safe_pack}/{safe_id}.aac");
+        let bytes = fetcher.get(&url)?;
+        let dest = dir.join(format!("{safe_id}.aac"));
+        write_verified(&dest, &bytes, prompt.file_size_bytes)?;
+    }
+
+    std::fs::create_dir_all(&dir)?;
+    let meta = serde_json::to_vec_pretty(&pack.meditation_prompts)
+        .map_err(|e| PackError::Manifest(e.to_string()))?;
+    std::fs::write(dir.join("meditation.json"), meta)?;
+    Ok(dir)
+}
+
+/// Load the meditation prompts a downloaded voice pack persisted locally.
+pub fn load_voice_prompts(pack_dir: &Path) -> Option<Vec<MeditationPrompt>> {
+    let bytes = std::fs::read(pack_dir.join("meditation.json")).ok()?;
+    serde_json::from_slice(&bytes).ok()
 }
 
 #[cfg(feature = "download")]

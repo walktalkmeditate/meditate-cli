@@ -1,11 +1,14 @@
 use meditate::audio::voice::{has_meditation_prompts, prompt_phase, VoicePhase, VoiceScheduler};
-use meditate::pack::{AudioAsset, MeditationPrompt};
+use meditate::pack::{MeditationPrompt, VoicePack};
 
 fn prompt(id: &str, phase: &str) -> MeditationPrompt {
     MeditationPrompt {
         id: id.into(),
-        r2_key: format!("voice/{id}.aac"),
-        phase: phase.into(),
+        seq: 0,
+        duration_sec: 0.0,
+        file_size_bytes: 0,
+        r2_key: format!("voiceguide/gentle/{id}.aac"),
+        phase: Some(phase.into()),
     }
 }
 
@@ -44,18 +47,15 @@ fn empty_pack_offers_nothing() {
 
 #[test]
 fn meditation_prompts_gate_whether_a_pack_is_offered() {
-    let walk_only = AudioAsset {
+    let walk_only = VoicePack {
         id: "guide".into(),
-        kind: "voice".into(),
-        display_name: "Guide".into(),
-        duration_sec: 0.0,
-        file_size_bytes: 0,
-        r2_key: "voice/guide.aac".into(),
+        name: "Guide".into(),
+        tagline: "a calm guide".into(),
         meditation_prompts: vec![],
     };
     assert!(!has_meditation_prompts(&walk_only));
 
-    let with_meditation = AudioAsset {
+    let with_meditation = VoicePack {
         meditation_prompts: vec![prompt("m1", "settling")],
         ..walk_only
     };
