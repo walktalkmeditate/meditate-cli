@@ -27,6 +27,21 @@ fn parses_breaths_and_toggles() {
 }
 
 #[test]
+fn parses_title_until_and_no_graphics() {
+    let cli = Cli::try_parse_from([
+        "meditate",
+        "--title",
+        "--no-graphics",
+        "--until",
+        "cargo build",
+    ])
+    .unwrap();
+    assert!(cli.title);
+    assert!(cli.no_graphics);
+    assert_eq!(cli.until.as_deref(), Some("cargo build"));
+}
+
+#[test]
 fn rejects_unknown_pattern() {
     assert!(Cli::try_parse_from(["meditate", "wobble"]).is_err());
 }

@@ -94,10 +94,16 @@ impl Waiter {
                 code: status.code(),
             })),
             Ok(None) => None,
-            Err(_) => Some(self.report(WaitStatus::Done {
-                success: false,
-                code: None,
-            })),
+            Err(err) => {
+                // A poll failure is not the command failing — surface it rather
+                // than silently reporting a false failure with no detail.
+                let mut report = self.report(WaitStatus::Done {
+                    success: false,
+                    code: None,
+                });
+                report.tail = format!("could not poll the command: {err}\n{}", report.tail);
+                Some(report)
+            }
         }
     }
 
@@ -110,7 +116,11 @@ impl Waiter {
 
     /// Leave the command running (q/Esc while waiting).
     pub fn detach(self) -> WaitReport {
-        self.report(WaitStatus::Detached)
+        let report = self.report(WaitStatus::Detached);
+        // Don't reap the child or delete its log out from under it — it keeps
+        // writing as it runs on.
+        std::mem::forget(self);
+        report
     }
 
     fn report(&self, status: WaitStatus) -> WaitReport {
@@ -143,14 +153,22 @@ fn tail_of(path: &Path) -> String {
     }
     let mut bytes = Vec::new();
     if file.read_to_end(&mut bytes).is_err() {
-        return String::new();
+        return "(could not read the captured output)".to_string();
     }
     let text = String::from_utf8_lossy(&bytes);
     let lines: Vec<&str> = text.lines().collect();
-    lines[lines.len().saturating_sub(TAIL_LINES)..]
-        .join("\n")
-        .trim()
-        .to_string()
+    let tail = lines[lines.len().saturating_sub(TAIL_LINES)..].join("\n");
+    strip_controls(tail.trim(), true)
+}
+
+/// Drop terminal control bytes (ESC, BEL, CSI/OSC introducers, DEL, C1) so
+/// captured program output and the command string can't drive the real terminal
+/// when printed or sent in an escape. `keep_breaks` preserves newlines and tabs
+/// for multi-line output; pass false for single-line escape bodies.
+fn strip_controls(text: &str, keep_breaks: bool) -> String {
+    text.chars()
+        .filter(|&c| (keep_breaks && (c == '\n' || c == '\t')) || !c.is_control())
+        .collect()
 }
 
 /// Human duration like `2m 13s` or `9s`.
@@ -166,9 +184,10 @@ pub fn human_duration(elapsed: Duration) -> String {
 /// The desktop-notification body for a finished command, or `None` when there's
 /// nothing worth pinging about (cancelled or detached — the user is right here).
 pub fn notify_message(report: &WaitReport) -> Option<String> {
+    let command = strip_controls(&report.command, false);
     match report.status {
-        WaitStatus::Done { success: true, .. } => Some(format!("✓ done: {}", report.command)),
-        WaitStatus::Done { success: false, .. } => Some(format!("✗ failed: {}", report.command)),
+        WaitStatus::Done { success: true, .. } => Some(format!("✓ done: {command}")),
+        WaitStatus::Done { success: false, .. } => Some(format!("✗ failed: {command}")),
         WaitStatus::Cancelled | WaitStatus::Detached => None,
     }
 }
@@ -176,22 +195,23 @@ pub fn notify_message(report: &WaitReport) -> Option<String> {
 /// Print the post-session report line (and, on failure, the captured tail).
 pub fn print_report(report: &WaitReport) {
     let elapsed = human_duration(report.elapsed);
+    let command = strip_controls(&report.command, false);
     match &report.status {
         WaitStatus::Done { success: true, .. } => {
-            println!("  ✓ {} — {elapsed}", report.command);
+            println!("  ✓ {command} — {elapsed}");
         }
         WaitStatus::Done {
             success: false,
             code,
         } => {
             let code = code.map_or_else(|| "killed".to_string(), |c| format!("exited {c}"));
-            println!("  ✗ {} — {code} ({elapsed})", report.command);
+            println!("  ✗ {command} — {code} ({elapsed})");
             for line in report.tail.lines() {
                 println!("    {line}");
             }
         }
-        WaitStatus::Cancelled => println!("  ■ {} — cancelled after {elapsed}", report.command),
-        WaitStatus::Detached => println!("  → {} — left running", report.command),
+        WaitStatus::Cancelled => println!("  ■ {command} — cancelled after {elapsed}"),
+        WaitStatus::Detached => println!("  → {command} — left running"),
     }
 }
 
@@ -243,8 +263,25 @@ mod tests {
         assert_eq!(human_duration(Duration::from_secs(133)), "2m 13s");
     }
 
+    #[cfg(unix)]
     #[test]
-    fn notify_message_only_for_finished_commands() {
+    fn cancel_kills_the_command() {
+        let mut waiter = Waiter::spawn("sleep 30").unwrap();
+        assert!(waiter.poll().is_none()); // still running
+        let report = waiter.cancel();
+        assert_eq!(report.status, WaitStatus::Cancelled);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn detach_leaves_the_command_running() {
+        let waiter = Waiter::spawn("sleep 0.2").unwrap();
+        let report = waiter.detach();
+        assert_eq!(report.status, WaitStatus::Detached);
+    }
+
+    #[test]
+    fn notify_message_covers_every_status() {
         let done_ok = WaitReport {
             command: "cargo build".into(),
             status: WaitStatus::Done {
@@ -259,10 +296,49 @@ mod tests {
             Some("✓ done: cargo build")
         );
 
+        let failed = WaitReport {
+            status: WaitStatus::Done {
+                success: false,
+                code: Some(1),
+            },
+            ..done_ok.clone()
+        };
+        assert_eq!(
+            notify_message(&failed).as_deref(),
+            Some("✗ failed: cargo build")
+        );
+
         let detached = WaitReport {
             status: WaitStatus::Detached,
-            ..done_ok
+            ..done_ok.clone()
         };
         assert_eq!(notify_message(&detached), None);
+
+        let cancelled = WaitReport {
+            status: WaitStatus::Cancelled,
+            ..done_ok
+        };
+        assert_eq!(notify_message(&cancelled), None);
+    }
+
+    #[test]
+    fn control_bytes_are_stripped_from_notifications_and_tails() {
+        let nasty = WaitReport {
+            command: "echo \x1b]0;pwned\x07 hi".into(),
+            status: WaitStatus::Done {
+                success: false,
+                code: Some(1),
+            },
+            elapsed: Duration::from_secs(1),
+            tail: String::new(),
+        };
+        let message = notify_message(&nasty).unwrap();
+        assert!(!message.contains('\x1b'), "ESC leaked: {message:?}");
+        assert!(!message.contains('\x07'), "BEL leaked: {message:?}");
+
+        // The ESC/BEL bytes are removed (neutralizing the escape); the now-inert
+        // "[31m" text is harmless. Newlines survive when keep_breaks is true.
+        assert_eq!(strip_controls("a\x1b[31mb\x07\nc", true), "a[31mb\nc");
+        assert_eq!(strip_controls("a\x1bb\nc", false), "abc");
     }
 }

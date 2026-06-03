@@ -18,6 +18,11 @@ const CHUNK: usize = 4096;
 /// One kitty image id we reuse every frame, replacing its pixels in place.
 const IMAGE_ID: u32 = 1;
 
+/// Hard cap on the transmitted image's long edge. The protocol scales the image
+/// into the cell region regardless, so a huge terminal never streams an enormous
+/// frame.
+const MAX_EDGE: usize = 512;
+
 /// Supersample factor for the offscreen render: denser than the half-block grid
 /// for a crisp image, capped so the transmitted frame stays small.
 pub fn supersample(cols: usize, orb_rows: usize) -> usize {
@@ -25,10 +30,18 @@ pub fn supersample(cols: usize, orb_rows: usize) -> usize {
     (240 / span).clamp(2, 6)
 }
 
-/// Pixel dimensions of the offscreen surface for a `cols × orb_rows` cell region.
+/// Pixel dimensions of the offscreen surface for a `cols × orb_rows` cell region,
+/// scaled down proportionally if the long edge would exceed `MAX_EDGE` (which
+/// keeps the orb round and bounds the frame size on very large terminals).
 pub fn surface_size(cols: usize, orb_rows: usize) -> (usize, usize) {
     let ss = supersample(cols, orb_rows);
-    (cols * ss, orb_rows * 2 * ss)
+    let (w, h) = (cols * ss, orb_rows * 2 * ss);
+    let big = w.max(h);
+    if big > MAX_EDGE {
+        ((w * MAX_EDGE / big).max(1), (h * MAX_EDGE / big).max(1))
+    } else {
+        (w.max(1), h.max(1))
+    }
 }
 
 /// A renderer that emits the orb image as terminal escapes.
@@ -82,10 +95,6 @@ impl ImageRenderer for KittyRenderer {
 /// control keys; `m=1` marks "more follows", `m=0` the final chunk.
 fn emit_chunked(out: &mut String, keys: &str, payload: &str) {
     let bytes = payload.as_bytes();
-    if bytes.is_empty() {
-        out.push_str(&format!("\x1b_G{keys},m=0;\x1b\\"));
-        return;
-    }
     let mut start = 0;
     let mut first = true;
     while start < bytes.len() {
@@ -146,19 +155,19 @@ fn bmp_24(surface: &Surface) -> Vec<u8> {
     let mut out = Vec::with_capacity(file_size);
     out.extend_from_slice(b"BM");
     out.extend_from_slice(&(file_size as u32).to_le_bytes());
-    out.extend_from_slice(&[0, 0, 0, 0]); // reserved
-    out.extend_from_slice(&54u32.to_le_bytes()); // pixel data offset (14 + 40)
+    out.extend_from_slice(&[0, 0, 0, 0]);
+    out.extend_from_slice(&54u32.to_le_bytes()); // pixel-data offset = 14 + 40
     out.extend_from_slice(&40u32.to_le_bytes()); // BITMAPINFOHEADER size
     out.extend_from_slice(&(w as i32).to_le_bytes());
     out.extend_from_slice(&(h as i32).to_le_bytes()); // positive height = bottom-up
-    out.extend_from_slice(&1u16.to_le_bytes()); // planes
-    out.extend_from_slice(&24u16.to_le_bytes()); // bits per pixel
-    out.extend_from_slice(&0u32.to_le_bytes()); // BI_RGB (uncompressed)
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&24u16.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes()); // BI_RGB = uncompressed
     out.extend_from_slice(&(pixels as u32).to_le_bytes());
-    out.extend_from_slice(&2835u32.to_le_bytes()); // ~72 DPI x
-    out.extend_from_slice(&2835u32.to_le_bytes()); // ~72 DPI y
-    out.extend_from_slice(&0u32.to_le_bytes()); // palette colors
-    out.extend_from_slice(&0u32.to_le_bytes()); // important colors
+    out.extend_from_slice(&2835u32.to_le_bytes()); // 2835 ppm ≈ 72 DPI
+    out.extend_from_slice(&2835u32.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes());
 
     let pad = padded - row_bytes;
     for y in (0..h).rev() {
@@ -274,6 +283,18 @@ mod tests {
             u32::from_le_bytes(bmp[2..6].try_into().unwrap()) as usize,
             bmp.len()
         );
+    }
+
+    #[test]
+    fn bmp_pixels_are_bottom_up_bgr() {
+        let mut surface = Surface::new(1, 2, Rgb::new(0, 0, 0));
+        surface.set(0, 0, Rgb::new(10, 20, 30)); // top row
+        surface.set(0, 1, Rgb::new(40, 50, 60)); // bottom row
+        let bmp = bmp_24(&surface);
+        // Pixel data starts at offset 54; rows are 4-byte aligned (3 BGR + 1 pad).
+        // BMP is bottom-up, so the file's first row is the surface's bottom row.
+        assert_eq!(&bmp[54..57], &[60, 50, 40]); // bottom row, B G R
+        assert_eq!(&bmp[58..61], &[30, 20, 10]); // top row, B G R
     }
 
     #[test]

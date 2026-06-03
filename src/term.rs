@@ -140,6 +140,10 @@ mod tests {
             GraphicsProtocol::Kitty
         );
         assert_eq!(
+            graphics(&[("GHOSTTY_RESOURCES_DIR", "/usr/share/ghostty")]),
+            GraphicsProtocol::Kitty
+        );
+        assert_eq!(
             graphics(&[("TERM_PROGRAM", "WezTerm")]),
             GraphicsProtocol::Kitty
         );

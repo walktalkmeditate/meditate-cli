@@ -89,10 +89,24 @@ fn config_template_writes_and_loads_as_defaults() {
         "default_bell",
         "streak_enabled",
         "door_enabled",
+        "tab_title",
+        "graphics",
         "[keymap]",
     ] {
         assert!(template.contains(key), "template missing `{key}`");
     }
+}
+
+#[test]
+fn config_round_trips_new_toggles() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = Config {
+        tab_title: Some(true),
+        graphics: Some(false),
+        ..Config::default()
+    };
+    config.save_to(dir.path()).unwrap();
+    assert_eq!(Config::load_from(dir.path()).unwrap(), config);
 }
 
 #[test]

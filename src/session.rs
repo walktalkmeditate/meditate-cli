@@ -535,6 +535,9 @@ impl Session {
             }
 
             if should_end(self.mode, now, state.breath_count) {
+                // A timer/breath limit ends the sit; leave any --until command
+                // running (and capture its report) rather than orphaning it.
+                self.finish_wait(false);
                 self.ring_current_bell();
                 break;
             }
@@ -949,9 +952,11 @@ fn is_ctrl_c(key: &event::KeyEvent) -> bool {
     key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)
 }
 
-/// Shorten a command for the status bar so a long pipeline doesn't overflow.
+/// Shorten a command for the status bar so a long pipeline doesn't overflow, and
+/// drop any control bytes so the command can't inject escapes into the HUD.
 fn truncate_command(command: &str) -> String {
     const MAX: usize = 28;
+    let command: String = command.chars().filter(|c| !c.is_control()).collect();
     let command = command.trim();
     if command.chars().count() > MAX {
         let head: String = command.chars().take(MAX - 1).collect();
@@ -1049,5 +1054,66 @@ mod tests {
         assert_eq!(next_cycle_index(Some(0), 2), Some(1));
         assert_eq!(next_cycle_index(Some(1), 2), None);
         assert_eq!(next_cycle_index(None, 0), None);
+    }
+
+    #[test]
+    fn title_enabled_via_flag_or_config() {
+        use clap::Parser;
+        let plain = Cli::try_parse_from(["meditate"]).unwrap();
+        let flagged = Cli::try_parse_from(["meditate", "--title"]).unwrap();
+        assert!(title_enabled(&flagged, &Config::default()));
+        assert!(!title_enabled(&plain, &Config::default()));
+        let cfg = Config {
+            tab_title: Some(true),
+            ..Config::default()
+        };
+        assert!(title_enabled(&plain, &cfg));
+    }
+
+    #[test]
+    fn use_graphics_needs_a_capable_terminal_and_no_opt_out() {
+        use crate::term::{ColorDepth, MapEnv};
+        use clap::Parser;
+        let cli = Cli::try_parse_from(["meditate"]).unwrap();
+        let cfg = Config::default();
+        let kitty = Capabilities {
+            color: ColorDepth::Truecolor,
+            graphics: GraphicsProtocol::Kitty,
+            reduce_motion: false,
+        };
+        let no_env = MapEnv::new(&[]);
+
+        assert!(use_graphics(&cli, &cfg, &kitty, &no_env));
+        assert!(!use_graphics(
+            &cli,
+            &cfg,
+            &Capabilities {
+                graphics: GraphicsProtocol::None,
+                ..kitty
+            },
+            &no_env
+        ));
+        assert!(!use_graphics(
+            &cli,
+            &cfg,
+            &kitty,
+            &MapEnv::new(&[("TMUX", "1")])
+        ));
+        let no_gfx = Cli::try_parse_from(["meditate", "--no-graphics"]).unwrap();
+        assert!(!use_graphics(&no_gfx, &cfg, &kitty, &no_env));
+        let cfg_off = Config {
+            graphics: Some(false),
+            ..Config::default()
+        };
+        assert!(!use_graphics(&cli, &cfg_off, &kitty, &no_env));
+    }
+
+    #[test]
+    fn truncate_command_shortens_and_strips_controls() {
+        assert_eq!(truncate_command("ls -la"), "ls -la");
+        let long = truncate_command("a-really-long-command-that-keeps-going-and-going");
+        assert!(long.ends_with('…'));
+        assert_eq!(long.chars().count(), 28);
+        assert_eq!(truncate_command("a\x1b]0;x\x07b"), "a]0;xb");
     }
 }
