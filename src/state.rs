@@ -4,12 +4,18 @@ use std::path::{Path, PathBuf};
 pub const STATE_FILE: &str = "state.toml";
 
 /// Machine-written session state, kept separate from user config so meditate can
-/// rewrite it freely without touching hand-edited preferences. Streak data lives
-/// in its own file (see `streak.rs`).
+/// rewrite it freely without touching hand-edited preferences. It remembers what
+/// you left a session at, so the next one resumes there — unless config pins a
+/// value, which always wins. Streak data lives in its own file (see `streak.rs`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct State {
     pub last_pattern: Option<String>,
+    /// Master volume, 0–100, to match the config unit.
+    pub master_volume: Option<u8>,
+    pub soundscape: Option<String>,
+    pub voice: Option<String>,
+    pub bell: Option<String>,
 }
 
 impl State {

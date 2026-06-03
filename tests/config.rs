@@ -35,28 +35,64 @@ fn malformed_config_errors_but_defaults_recover() {
 
 #[test]
 fn start_pattern_arbitration() {
-    let mut config = Config {
+    let pinned = Config {
         default_pattern: Some("calm".into()),
         ..Config::default()
     };
     let state = State {
         last_pattern: Some("box".into()),
+        ..State::default()
     };
 
+    // The command line always wins.
     assert_eq!(
-        resolve_start_pattern(Some("coherent"), &config, &state),
+        resolve_start_pattern(Some("coherent"), &pinned, &state),
         Some("coherent".into())
     );
+    // A pinned config default beats the remembered pattern.
     assert_eq!(
-        resolve_start_pattern(None, &config, &state),
-        Some("box".into())
-    );
-
-    config.resume_last_pattern = Some(false);
-    assert_eq!(
-        resolve_start_pattern(None, &config, &state),
+        resolve_start_pattern(None, &pinned, &state),
         Some("calm".into())
     );
+    // With nothing pinned, the remembered pattern is resumed.
+    assert_eq!(
+        resolve_start_pattern(None, &Config::default(), &state),
+        Some("box".into())
+    );
+    // resume_last_pattern = false disables session memory.
+    let no_resume = Config {
+        resume_last_pattern: Some(false),
+        ..Config::default()
+    };
+    assert_eq!(resolve_start_pattern(None, &no_resume, &state), None);
+}
+
+#[test]
+fn config_template_writes_and_loads_as_defaults() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        Config::path_in(dir.path()),
+        meditate::config::default_template(),
+    )
+    .unwrap();
+    // Every line is commented, so a freshly generated config equals the defaults.
+    assert_eq!(Config::load_from(dir.path()).unwrap(), Config::default());
+
+    let template = meditate::config::default_template();
+    for key in [
+        "default_pattern",
+        "resume_last_pattern",
+        "master_volume",
+        "reduce_motion",
+        "default_soundscape",
+        "default_voice",
+        "default_bell",
+        "streak_enabled",
+        "door_enabled",
+        "[keymap]",
+    ] {
+        assert!(template.contains(key), "template missing `{key}`");
+    }
 }
 
 #[test]
@@ -81,6 +117,10 @@ fn state_round_trips_and_tolerates_corruption() {
     let dir = tempfile::tempdir().unwrap();
     let state = State {
         last_pattern: Some("equal".into()),
+        master_volume: Some(70),
+        soundscape: Some("forest".into()),
+        voice: None,
+        bell: Some("echo-chime".into()),
     };
     state.save_to(dir.path()).unwrap();
     assert_eq!(State::load_from(dir.path()), state);

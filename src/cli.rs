@@ -105,8 +105,15 @@ pub struct DownloadArgs {
 pub enum ConfigAction {
     /// Print the path to your config file.
     Path,
-    /// Print your current config (or note that defaults are in use).
+    /// Print your current config (or the default template if you have none).
     Show,
+    /// Write a fully-commented config file with every option and its default.
+    #[command(visible_alias = "generate")]
+    Init {
+        /// Overwrite an existing config file.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand, Debug, PartialEq, Eq)]

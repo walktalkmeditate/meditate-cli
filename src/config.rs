@@ -6,7 +6,8 @@ pub const CONFIG_FILE: &str = "config.toml";
 
 /// Hand-edited user preferences. Every field is optional; an absent file or
 /// absent key falls back to a built-in default, so a zero-config launch works.
-/// meditate never writes this file — that keeps user edits authoritative.
+/// meditate only writes this file when you run `config init`; it never rewrites
+/// your edits during a session (that state lives in `state.toml`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -75,4 +76,64 @@ impl Config {
     pub fn resume_last_pattern(&self) -> bool {
         self.resume_last_pattern.unwrap_or(true)
     }
+}
+
+/// A fully-commented config covering every supported option at its default.
+/// Written by `meditate config init`; shown by `meditate config` when no file
+/// exists yet. Every line is commented, so loading it yields `Config::default()`
+/// until the user uncomments something.
+pub fn default_template() -> &'static str {
+    "# meditate configuration
+#
+# Every setting is optional — without this file meditate still runs with sane
+# defaults. Uncomment a line to override one. Anything you set here takes
+# priority over what a session remembers from last time.
+
+# ── Session ──────────────────────────────────────────────────────────────────
+
+# Breathing pattern to start with.
+# One of: calm  equal  relaxing  box  coherent  deep-calm  none
+# default_pattern = \"calm\"
+
+# When default_pattern is not set, resume the pattern you used last time.
+# resume_last_pattern = true
+
+# Master volume, 0–100.
+# master_volume = 80
+
+# Slower, calmer motion (also: --reduce-motion, or the REDUCE_MOTION env var).
+# reduce_motion = false
+
+# ── Sound packs ──────────────────────────────────────────────────────────────
+# Download packs first, e.g.  meditate download soundscapes
+# Set a default to start it on launch; otherwise meditate remembers your last
+# choice. Use the pack id shown by `meditate download`.
+
+# default_soundscape = \"forest\"
+# default_voice      = \"breeze\"
+# default_bell       = \"echo-chime\"
+
+# ── Streak & door ────────────────────────────────────────────────────────────
+
+# Count sessions toward your local streak.
+# streak_enabled = true
+
+# Show the Pilgrim invitation after a long session.
+# door_enabled = true
+
+# ── Key bindings ─────────────────────────────────────────────────────────────
+# Rebind any action to a single key. Defaults shown.
+# [keymap]
+# next_pattern = \"n\"
+# prev_pattern = \"N\"
+# cycle_soundscape = \"s\"
+# cycle_voice = \"v\"
+# toggle_bell = \"b\"
+# mute = \"m\"
+# volume_up = \"+\"
+# volume_down = \"-\"
+# pause = \" \"
+# focus = \"f\"
+# quit = \"q\"
+"
 }

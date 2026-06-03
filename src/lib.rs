@@ -20,9 +20,10 @@ use state::State;
 
 /// Decide which breathing pattern a session opens with.
 ///
-/// A pattern named on the command line always wins. Otherwise, when
-/// `resume_last_pattern` is enabled (the default), the last-used pattern from
-/// machine state wins; failing that, the configured default is used.
+/// Precedence: a pattern named on the command line wins; then a pinned
+/// `default_pattern` from config; then — when `resume_last_pattern` is enabled
+/// (the default) — the last-used pattern remembered in machine state. `None`
+/// means no source applied, and the caller falls back to the built-in default.
 pub fn resolve_start_pattern(
     cli_pattern: Option<&str>,
     config: &Config,
@@ -31,12 +32,16 @@ pub fn resolve_start_pattern(
     if let Some(pattern) = cli_pattern {
         return Some(pattern.to_string());
     }
+    // A config default is a pinned preference and wins over session memory.
+    if let Some(pattern) = &config.default_pattern {
+        return Some(pattern.clone());
+    }
     if config.resume_last_pattern() {
         if let Some(pattern) = &state.last_pattern {
             return Some(pattern.clone());
         }
     }
-    config.default_pattern.clone()
+    None
 }
 
 pub fn run(cli: Cli) -> i32 {
@@ -246,16 +251,53 @@ fn cmd_config(action: Option<&ConfigAction>) -> i32 {
             println!("{}", path.display());
             0
         }
-        _ => match std::fs::read_to_string(&path) {
-            Ok(text) => {
-                print!("{text}");
-                0
-            }
-            Err(_) => {
-                println!("# meditate has no config yet — built-in defaults are in use.");
-                println!("# create {} to customize.", path.display());
-                0
-            }
-        },
+        Some(ConfigAction::Init { force }) => config_init(&path, *force),
+        _ => config_show(&path),
+    }
+}
+
+/// Print the config file, or — when there is none — the default template so the
+/// user can see every option, with a hint to write it.
+fn config_show(path: &std::path::Path) -> i32 {
+    match std::fs::read_to_string(path) {
+        Ok(text) => {
+            print!("{text}");
+            0
+        }
+        Err(_) => {
+            print!("{}", config::default_template());
+            println!("# No config file yet — the template above lists every option.");
+            println!("# Write it with:  meditate config init");
+            0
+        }
+    }
+}
+
+/// Write the commented template to the config path, refusing to clobber an
+/// existing file unless `--force` was given.
+fn config_init(path: &std::path::Path, force: bool) -> i32 {
+    if path.exists() && !force {
+        eprintln!(
+            "meditate: a config already exists at {} (pass --force to overwrite)",
+            path.display()
+        );
+        return 1;
+    }
+    if let Some(parent) = path.parent() {
+        if let Err(err) = std::fs::create_dir_all(parent) {
+            eprintln!("meditate: could not create config directory: {err}");
+            return 1;
+        }
+    }
+    match std::fs::write(path, config::default_template()) {
+        Ok(()) => {
+            println!("Wrote {}", path.display());
+            println!("Open it to set your defaults — every option is commented with its default.");
+            0
+        }
+        Err(err) => {
+            eprintln!("meditate: could not write config: {err}");
+            1
+        }
     }
 }

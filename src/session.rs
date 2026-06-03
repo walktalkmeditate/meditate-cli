@@ -256,6 +256,10 @@ pub fn run(cli: &Cli) -> i32 {
     drop(_guard);
     let _ = State {
         last_pattern: Some(outcome.pattern_name.clone()),
+        master_volume: Some(outcome.master_volume),
+        soundscape: outcome.soundscape.clone(),
+        voice: outcome.voice.clone(),
+        bell: outcome.bell.clone(),
     }
     .save_to(&data_dir);
 
@@ -294,6 +298,10 @@ struct Outcome {
     breaths: u32,
     pattern_name: String,
     door_enabled: bool,
+    master_volume: u8,
+    soundscape: Option<String>,
+    voice: Option<String>,
+    bell: Option<String>,
 }
 
 impl Session {
@@ -311,14 +319,11 @@ impl Session {
                 .unwrap_or_else(|| "calm".to_string());
 
         let audio = audio::open();
-        audio.bell();
-        let master = config
-            .master_volume
-            .map(|v| f32::from(v) / 100.0)
-            .unwrap_or(0.8);
+        // Master volume: a pinned config value wins, else last session's, else 80%.
+        let master = f32::from(config.master_volume.or(state.master_volume).unwrap_or(80)) / 100.0;
         audio.set_master(master);
 
-        Session {
+        let mut session = Session {
             breath: Breath::new(breath::pattern_by_name(&pattern_name), Duration::ZERO),
             renderer: renderer_for(&caps),
             audio,
@@ -338,6 +343,63 @@ impl Session {
             bells: pack::cached_files(data_dir, AssetKind::Bell),
             bell_idx: None,
             bell_samples: None,
+        };
+        session.restore(config, state);
+        // Opening strike — uses the restored bell if one was selected, else synth.
+        session.ring_current_bell();
+        session
+    }
+
+    /// Restore the soundscape, voice, and bell a session should open with: a
+    /// pinned config default wins, else the last session's choice. Missing or
+    /// no-longer-cached packs are silently skipped.
+    fn restore(&mut self, config: &Config, state: &State) {
+        if let Some(id) = config
+            .default_soundscape
+            .clone()
+            .or_else(|| state.soundscape.clone())
+        {
+            self.select_soundscape_by_id(&id);
+        }
+        if let Some(id) = config.default_voice.clone().or_else(|| state.voice.clone()) {
+            self.select_voice_by_id(&id);
+        }
+        if let Some(id) = config.default_bell.clone().or_else(|| state.bell.clone()) {
+            self.select_bell_by_id(&id);
+        }
+    }
+
+    fn select_soundscape_by_id(&mut self, id: &str) {
+        let Some(i) = self.soundscapes.iter().position(|(name, _)| name == id) else {
+            return;
+        };
+        let path = self.soundscapes[i].1.clone();
+        if let Some(samples) = pack::soundscape::load_samples(&path, self.audio.sample_rate()) {
+            self.soundscape_idx = Some(i);
+            self.audio.play_soundscape(Arc::new(samples));
+        }
+    }
+
+    fn select_voice_by_id(&mut self, id: &str) {
+        let Some(i) = self.voices.iter().position(|(name, _)| name == id) else {
+            return;
+        };
+        if let Some(prompts) = pack::load_voice_prompts(&self.voices[i].1) {
+            if !prompts.is_empty() {
+                self.voice_idx = Some(i);
+                self.voice = Some(VoiceScheduler::new(prompts));
+            }
+        }
+    }
+
+    fn select_bell_by_id(&mut self, id: &str) {
+        let Some(i) = self.bells.iter().position(|(name, _)| name == id) else {
+            return;
+        };
+        let path = self.bells[i].1.clone();
+        if let Some(samples) = pack::soundscape::load_samples(&path, self.audio.sample_rate()) {
+            self.bell_idx = Some(i);
+            self.bell_samples = Some(Arc::new(samples));
         }
     }
 
@@ -419,6 +481,10 @@ impl Session {
             breaths: self.breath.breath_count(),
             pattern_name: self.breath.pattern().name.to_string(),
             door_enabled: self.door_enabled,
+            master_volume: (self.master * 100.0).round() as u8,
+            soundscape: self.soundscape_idx.map(|i| self.soundscapes[i].0.clone()),
+            voice: self.voice_idx.map(|i| self.voices[i].0.clone()),
+            bell: self.bell_idx.map(|i| self.bells[i].0.clone()),
         }
     }
 

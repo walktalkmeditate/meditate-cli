@@ -80,10 +80,15 @@ their meditation prompts only — walk guidance is never downloaded.
 
 ## Customize
 
-Edit `~/.config/meditate/config.toml` (created on demand) to set a default
-pattern, pin the palette, rebind keys, or turn features off. Every key is
-optional — zero-config still launches instantly. Run `meditate config path` to
-find it.
+Run `meditate config init` to drop a fully-commented `config.toml` with every
+option at its default (or `meditate config` to preview the template without
+writing). Set a default pattern, volume, or soundscape/voice/bell, rebind keys,
+or turn features off — every line is optional, so zero-config still launches
+instantly. `meditate config path` prints its location.
+
+meditate also **remembers** where you left off — pattern, volume, and your
+soundscape/voice/bell selection — and resumes there next time. Anything you pin
+in `config.toml` always takes priority over that memory.
 
 ## Privacy
 
