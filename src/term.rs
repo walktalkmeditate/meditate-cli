@@ -91,7 +91,15 @@ fn detect_color(env: &impl Env) -> ColorDepth {
 }
 
 fn detect_graphics(env: &impl Env) -> GraphicsProtocol {
-    if env.has("KITTY_WINDOW_ID") || env.get("TERM").as_deref() == Some("xterm-kitty") {
+    let term = env.get("TERM").unwrap_or_default();
+    if env.has("KITTY_WINDOW_ID") || term == "xterm-kitty" {
+        return GraphicsProtocol::Kitty;
+    }
+    // Ghostty and WezTerm both speak the kitty graphics protocol.
+    if term == "xterm-ghostty"
+        || env.has("GHOSTTY_RESOURCES_DIR")
+        || matches!(env.get("TERM_PROGRAM").as_deref(), Some("ghostty"))
+    {
         return GraphicsProtocol::Kitty;
     }
     match env.get("TERM_PROGRAM").as_deref() {
@@ -103,4 +111,49 @@ fn detect_graphics(env: &impl Env) -> GraphicsProtocol {
 
 fn detect_reduce_motion(env: &impl Env) -> bool {
     matches!(env.get("REDUCE_MOTION").as_deref(), Some(v) if !v.is_empty() && v != "0")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn graphics(pairs: &[(&str, &str)]) -> GraphicsProtocol {
+        detect_graphics(&MapEnv::new(pairs))
+    }
+
+    #[test]
+    fn detects_every_kitty_protocol_terminal() {
+        assert_eq!(
+            graphics(&[("TERM", "xterm-kitty")]),
+            GraphicsProtocol::Kitty
+        );
+        assert_eq!(
+            graphics(&[("KITTY_WINDOW_ID", "1")]),
+            GraphicsProtocol::Kitty
+        );
+        assert_eq!(
+            graphics(&[("TERM", "xterm-ghostty")]),
+            GraphicsProtocol::Kitty
+        );
+        assert_eq!(
+            graphics(&[("TERM_PROGRAM", "ghostty")]),
+            GraphicsProtocol::Kitty
+        );
+        assert_eq!(
+            graphics(&[("TERM_PROGRAM", "WezTerm")]),
+            GraphicsProtocol::Kitty
+        );
+    }
+
+    #[test]
+    fn detects_iterm2_and_falls_back_otherwise() {
+        assert_eq!(
+            graphics(&[("TERM_PROGRAM", "iTerm.app")]),
+            GraphicsProtocol::ITerm2
+        );
+        assert_eq!(
+            graphics(&[("TERM", "xterm-256color")]),
+            GraphicsProtocol::None
+        );
+    }
 }
