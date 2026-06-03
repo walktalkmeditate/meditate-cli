@@ -11,9 +11,9 @@ categories = ["command-line-utilities"]
 
 [features]
 default = []
-# Real audio output via cpal. Off by default so the core builds and tests
-# headlessly; enable on a machine with an audio device for playback.
-audio = ["dep:cpal", "dep:coreaudio-sys"]
+# Real audio output via cpal + decoding via symphonia. Off by default so the
+# core builds and tests headlessly; enable on a machine with an audio device.
+audio = ["dep:cpal", "dep:coreaudio-sys", "dep:symphonia"]
 # Network pack downloads via ureq. Off by default; release builds enable it.
 download = ["dep:ureq", "dep:idna_adapter"]
 
@@ -37,6 +37,7 @@ crossterm = "0.28"
 fs2 = "0.4"
 serde_json = "1"
 cpal = { version = "0.15", optional = true }
+symphonia = { version = "0.5", optional = true, default-features = false, features = ["aac", "isomp4", "ogg", "vorbis", "wav", "pcm"] }
 ureq = { version = "2", optional = true }
 # Pinned below the edition2024 bump for the 1.82 MSRV (pulled by ureq -> url).
 idna_adapter = { version = "=1.2.0", optional = true }
