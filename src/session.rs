@@ -1,3 +1,4 @@
+use crate::audio::voice::VoiceScheduler;
 use crate::audio::{self, AudioBackend};
 use crate::breath::{self, Breath, Phase, PATTERNS};
 use crate::cli::Cli;
@@ -280,6 +281,9 @@ struct Session {
     focus: bool,
     soundscapes: Vec<(String, PathBuf)>,
     soundscape_idx: Option<usize>,
+    voices: Vec<(String, PathBuf)>,
+    voice_idx: Option<usize>,
+    voice: Option<VoiceScheduler>,
 }
 
 struct Outcome {
@@ -325,6 +329,9 @@ impl Session {
             focus: false,
             soundscapes: pack::cached_files(data_dir, AssetKind::Soundscape),
             soundscape_idx: None,
+            voices: pack::cached_files(data_dir, AssetKind::Voice),
+            voice_idx: None,
+            voice: None,
         }
     }
 
@@ -363,6 +370,8 @@ impl Session {
                 flash_remaining = MILESTONE_FLASH_SECS;
             }
             flash_remaining = (flash_remaining - dt).max(0.0);
+
+            self.tick_voice(now.as_secs());
 
             if should_end(self.mode, now, state.breath_count) {
                 self.audio.bell();
@@ -422,7 +431,7 @@ impl Session {
                 self.focus.then(|| title_case(prev.name))
             }
             Action::CycleSoundscape => self.cycle_soundscape(),
-            Action::CycleVoice => Some("No voice pack — run: meditate download voices".to_string()),
+            Action::CycleVoice => self.cycle_voice(),
             Action::ToggleBell => {
                 self.audio.bell();
                 self.focus.then(|| "Bell".to_string())
@@ -489,6 +498,58 @@ impl Session {
                     None => Some(format!("couldn't play {id}")),
                 }
             }
+        }
+    }
+
+    /// Cycle the voice guide: off → first pack → … → off. Selecting a pack loads
+    /// its meditation prompts into a scheduler; `tick_voice` plays them over time.
+    fn cycle_voice(&mut self) -> Option<String> {
+        if self.voices.is_empty() {
+            return Some("No voice pack — run: meditate download voices".to_string());
+        }
+        self.voice_idx = next_cycle_index(self.voice_idx, self.voices.len());
+        match self.voice_idx {
+            None => {
+                self.voice = None;
+                Some("voice off".to_string())
+            }
+            Some(i) => {
+                let (id, dir) = self.voices[i].clone();
+                match pack::load_voice_prompts(&dir) {
+                    Some(prompts) if !prompts.is_empty() => {
+                        self.voice = Some(VoiceScheduler::new(prompts));
+                        Some(title_case(&id))
+                    }
+                    _ => {
+                        self.voice = None;
+                        self.voice_idx = None;
+                        Some(format!("couldn't load {id}"))
+                    }
+                }
+            }
+        }
+    }
+
+    /// Play the next due voice prompt, decoding it and ducking the soundscape
+    /// beneath it. Decoding runs on the loop thread, but prompts are short so the
+    /// hitch is small.
+    fn tick_voice(&mut self, elapsed_secs: u64) {
+        let Some(idx) = self.voice_idx else {
+            return;
+        };
+        let prompt = match self.voice.as_mut() {
+            Some(scheduler) => scheduler.next(elapsed_secs),
+            None => return,
+        };
+        let Some(prompt) = prompt else {
+            return;
+        };
+        let Some(safe_id) = pack::safe_component(&prompt.id) else {
+            return;
+        };
+        let path = self.voices[idx].1.join(format!("{safe_id}.aac"));
+        if let Some(samples) = pack::soundscape::load_samples(&path, self.audio.sample_rate()) {
+            self.audio.play_voice(Arc::new(samples));
         }
     }
 
