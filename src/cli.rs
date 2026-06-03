@@ -38,6 +38,10 @@ pub struct Cli {
     #[arg(long, value_name = "COMMAND")]
     pub until: Option<String>,
 
+    /// Force the half-block orb even on a graphics-capable terminal (kitty/Ghostty/iTerm2).
+    #[arg(long)]
+    pub no_graphics: bool,
+
     #[command(subcommand)]
     pub command: Option<Command>,
 }

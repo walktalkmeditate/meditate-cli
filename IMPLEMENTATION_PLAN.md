@@ -34,7 +34,7 @@ iTerm2; `None` otherwise.
 **Tests**: encoder unit tests (header keys, base64 payload, delete-then-place
 order) on a small buffer; PTY check that valid `_G` escapes are emitted; visual
 confirmation by the user in kitty/Ghostty.
-**Status**: Not Started
+**Status**: Complete (escapes + fallback verified via PTY; awaiting user's visual check)
 
 ## Stage 3: iTerm2 (OSC 1337) path
 **Goal**: The same orb on iTerm2.

@@ -1,4 +1,5 @@
 pub mod cell_gradient;
+pub mod graphics;
 pub mod mono;
 pub mod orb;
 

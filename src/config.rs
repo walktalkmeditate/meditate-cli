@@ -23,6 +23,7 @@ pub struct Config {
     pub nudges_enabled: Option<bool>,
     pub reduce_motion: Option<bool>,
     pub tab_title: Option<bool>,
+    pub graphics: Option<bool>,
     pub keymap: BTreeMap<String, String>,
 }
 
@@ -109,6 +110,11 @@ pub fn default_template() -> &'static str {
 # and falls with the breath, so an inactive tab still paces you (also: --title).
 # In tmux, enable it with:  set -g set-titles on
 # tab_title = false
+
+# Draw a real graphics orb on capable terminals (kitty, Ghostty, WezTerm,
+# iTerm2). On by default there; set false to force the half-block orb (also:
+# --no-graphics).
+# graphics = true
 
 # ── Sound packs ──────────────────────────────────────────────────────────────
 # Download packs first, e.g.  meditate download soundscapes

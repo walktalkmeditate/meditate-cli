@@ -9,10 +9,10 @@ use crate::pack::{self, AssetKind};
 use crate::palette::{self, season_for_month, time_for_hour};
 use crate::paths;
 use crate::render::orb::{self, OrbScene};
-use crate::render::{renderer_for, Surface};
+use crate::render::{graphics, renderer_for, Surface};
 use crate::state::State;
 use crate::streak;
-use crate::term::{Capabilities, Env, SystemEnv};
+use crate::term::{Capabilities, Env, GraphicsProtocol, SystemEnv};
 use crate::title;
 use crate::wait::{self, Waiter};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
@@ -169,6 +169,15 @@ fn title_case(name: &str) -> String {
 /// Whether to mirror the breath into the terminal title this session.
 fn title_enabled(cli: &Cli, config: &Config) -> bool {
     cli.title || config.tab_title.unwrap_or(false)
+}
+
+/// Whether to draw the real graphics orb: a kitty-protocol terminal, not opted
+/// out, and not inside tmux (kitty graphics need passthrough there — deferred).
+fn use_graphics(cli: &Cli, config: &Config, caps: &Capabilities, env: &impl Env) -> bool {
+    if cli.no_graphics || config.graphics == Some(false) || env.has("TMUX") {
+        return false;
+    }
+    matches!(caps.graphics, GraphicsProtocol::Kitty)
 }
 
 /// Pushes the terminal's title onto its stack on creation and pops it on drop,
@@ -347,6 +356,7 @@ struct Session {
     last_title: String,
     waiting: Option<Waiter>,
     wait_report: Option<wait::WaitReport>,
+    graphics: Option<graphics::KittyRenderer>,
 }
 
 struct Outcome {
@@ -404,6 +414,7 @@ impl Session {
             last_title: String::new(),
             waiting: None,
             wait_report: None,
+            graphics: use_graphics(cli, config, &caps, &env).then(graphics::KittyRenderer::new),
         };
         session.restore(config, state);
         // Opening strike — uses the restored bell if one was selected, else synth.
@@ -792,11 +803,7 @@ impl Session {
         if cols == 0 || rows < 2 {
             return Ok(());
         }
-        let mut surface = Surface::new(
-            cols as usize,
-            (rows as usize - 1) * 2,
-            self.palette.background,
-        );
+        let (cols, orb_rows) = (cols as usize, rows as usize - 1);
         let scene = OrbScene {
             scale: orb::scale_for(state),
             glow: orb::glow_for(state),
@@ -804,11 +811,19 @@ impl Session {
             milestone_flash: flash,
             palette: self.palette,
         };
-        orb::paint(&mut surface, &scene);
 
         let mut stdout = io::stdout();
         queue!(stdout, cursor::MoveTo(0, 0))?;
-        stdout.write_all(self.renderer.encode(&surface).as_bytes())?;
+        if let Some(kitty) = &self.graphics {
+            let (pw, ph) = graphics::surface_size(cols, orb_rows);
+            let mut surface = Surface::new(pw, ph, self.palette.background);
+            orb::paint(&mut surface, &scene);
+            stdout.write_all(kitty.frame(&surface, cols, orb_rows).as_bytes())?;
+        } else {
+            let mut surface = Surface::new(cols, orb_rows * 2, self.palette.background);
+            orb::paint(&mut surface, &scene);
+            stdout.write_all(self.renderer.encode(&surface).as_bytes())?;
+        }
 
         queue!(
             stdout,
@@ -844,6 +859,10 @@ impl Session {
     }
 
     fn fade_out(&mut self) {
+        if self.graphics.is_some() {
+            self.fade_out_graphics();
+            return;
+        }
         for step in 0..12 {
             let scale = (0.7 - step as f32 * 0.05).max(0.05);
             let scene = OrbScene {
@@ -869,6 +888,39 @@ impl Session {
             }
             std::thread::sleep(Duration::from_millis(40));
         }
+    }
+
+    /// The graphics-orb fade: shrink the image, then delete it so nothing lingers.
+    fn fade_out_graphics(&mut self) {
+        let Some(kitty) = &self.graphics else {
+            return;
+        };
+        if let Ok((cols, rows)) = terminal::size() {
+            if cols > 0 && rows >= 2 {
+                let (cols, orb_rows) = (cols as usize, rows as usize - 1);
+                let (pw, ph) = graphics::surface_size(cols, orb_rows);
+                for step in 0..12 {
+                    let scale = (0.7 - step as f32 * 0.05).max(0.05);
+                    let scene = OrbScene {
+                        scale,
+                        glow: 0.0,
+                        ripples: Vec::new(),
+                        milestone_flash: 0.0,
+                        palette: self.palette,
+                    };
+                    let mut surface = Surface::new(pw, ph, self.palette.background);
+                    orb::paint(&mut surface, &scene);
+                    let mut stdout = io::stdout();
+                    let _ = queue!(stdout, cursor::MoveTo(0, 0));
+                    let _ = stdout.write_all(kitty.frame(&surface, cols, orb_rows).as_bytes());
+                    let _ = stdout.flush();
+                    std::thread::sleep(Duration::from_millis(40));
+                }
+            }
+        }
+        let mut stdout = io::stdout();
+        let _ = stdout.write_all(graphics::teardown().as_bytes());
+        let _ = stdout.flush();
     }
 }
 
