@@ -37,7 +37,7 @@ try {
     Expand-Archive -Path (Join-Path $tmp $archive) -DestinationPath $tmp -Force
     $dest = Join-Path $env:LOCALAPPDATA "Programs\meditate"
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
-    Copy-Item -Force (Join-Path $tmp "$bin.exe") (Join-Path $dest "$bin.exe")
+    Copy-Item -Force (Join-Path $tmp "$bin-$target\$bin.exe") (Join-Path $dest "$bin.exe")
 
     Write-Host "Installed $bin $tag to $dest\$bin.exe"
     if ($env:PATH -notlike "*$dest*") {

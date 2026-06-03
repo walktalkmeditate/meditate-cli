@@ -28,12 +28,14 @@ case "$arch" in
 esac
 target="${arch_id}-${os_id}"
 
-auth=""
+api="https://api.github.com/repos/${REPO}/releases/latest"
+# Quote the auth header as a single argument; an unquoted variable would
+# word-split "Bearer <token>" and leak the token into curl's arguments.
 if [ -n "${GITHUB_TOKEN:-}" ]; then
-    auth="-H Authorization:Bearer ${GITHUB_TOKEN}"
+    tag="$(curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" "$api" | grep '"tag_name"' | head -1 | cut -d '"' -f4)"
+else
+    tag="$(curl -fsSL "$api" | grep '"tag_name"' | head -1 | cut -d '"' -f4)"
 fi
-tag="$(curl -fsSL $auth "https://api.github.com/repos/${REPO}/releases/latest" \
-    | grep '"tag_name"' | head -1 | cut -d '"' -f4)"
 if [ -z "$tag" ]; then
     echo "meditate: could not find the latest release (GitHub rate limit? set GITHUB_TOKEN)" >&2
     exit 1
@@ -57,7 +59,7 @@ fi
 tar -xzf "${tmp}/${archive}" -C "$tmp"
 dest="${HOME}/.local/bin"
 mkdir -p "$dest"
-install -m 0755 "${tmp}/${BIN}" "${dest}/${BIN}"
+install -m 0755 "${tmp}/${BIN}-${target}/${BIN}" "${dest}/${BIN}"
 
 echo "Installed ${BIN} ${tag} to ${dest}/${BIN}"
 case ":$PATH:" in
