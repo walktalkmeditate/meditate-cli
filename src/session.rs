@@ -284,6 +284,9 @@ struct Session {
     voices: Vec<(String, PathBuf)>,
     voice_idx: Option<usize>,
     voice: Option<VoiceScheduler>,
+    bells: Vec<(String, PathBuf)>,
+    bell_idx: Option<usize>,
+    bell_samples: Option<Arc<Vec<f32>>>,
 }
 
 struct Outcome {
@@ -332,6 +335,9 @@ impl Session {
             voices: pack::cached_files(data_dir, AssetKind::Voice),
             voice_idx: None,
             voice: None,
+            bells: pack::cached_files(data_dir, AssetKind::Bell),
+            bell_idx: None,
+            bell_samples: None,
         }
     }
 
@@ -374,7 +380,7 @@ impl Session {
             self.tick_voice(now.as_secs());
 
             if should_end(self.mode, now, state.breath_count) {
-                self.audio.bell();
+                self.ring_current_bell();
                 break;
             }
 
@@ -432,10 +438,7 @@ impl Session {
             }
             Action::CycleSoundscape => self.cycle_soundscape(),
             Action::CycleVoice => self.cycle_voice(),
-            Action::ToggleBell => {
-                self.audio.bell();
-                self.focus.then(|| "Bell".to_string())
-            }
+            Action::ToggleBell => self.cycle_bell(),
             Action::Mute => {
                 self.muted = !self.muted;
                 self.audio.set_muted(self.muted);
@@ -550,6 +553,49 @@ impl Session {
         let path = self.voices[idx].1.join(format!("{safe_id}.aac"));
         if let Some(samples) = pack::soundscape::load_samples(&path, self.audio.sample_rate()) {
             self.audio.play_voice(Arc::new(samples));
+        }
+    }
+
+    /// Cycle the bell and ring the new pick so it can be auditioned: synth →
+    /// each downloaded bell → synth. The synth bell is the offline default, so
+    /// with no downloads `b` simply rings it every press.
+    fn cycle_bell(&mut self) -> Option<String> {
+        if self.bells.is_empty() {
+            self.audio.bell();
+            return self.focus.then(|| "Bell".to_string());
+        }
+        self.bell_idx = next_cycle_index(self.bell_idx, self.bells.len());
+        match self.bell_idx {
+            None => {
+                self.bell_samples = None;
+                self.audio.bell();
+                Some("Bell (synth)".to_string())
+            }
+            Some(i) => {
+                let (id, path) = self.bells[i].clone();
+                match pack::soundscape::load_samples(&path, self.audio.sample_rate()) {
+                    Some(samples) => {
+                        let samples = Arc::new(samples);
+                        self.audio.play_bell(Arc::clone(&samples));
+                        self.bell_samples = Some(samples);
+                        Some(title_case(&id))
+                    }
+                    None => {
+                        self.bell_samples = None;
+                        self.bell_idx = None;
+                        Some(format!("couldn't play {id}"))
+                    }
+                }
+            }
+        }
+    }
+
+    /// Ring the currently selected bell — a downloaded one if picked, else the
+    /// synth default. Used for the session's opening and closing strikes.
+    fn ring_current_bell(&self) {
+        match &self.bell_samples {
+            Some(samples) => self.audio.play_bell(Arc::clone(samples)),
+            None => self.audio.bell(),
         }
     }
 

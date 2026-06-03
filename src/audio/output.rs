@@ -69,6 +69,10 @@ impl AudioBackend for CpalBackend {
         self.mixer().play(Arc::clone(&self.bell));
     }
 
+    fn play_bell(&self, samples: Arc<Vec<f32>>) {
+        self.mixer().play(samples);
+    }
+
     fn set_master(&self, volume: f32) {
         self.mixer().set_master(volume);
     }

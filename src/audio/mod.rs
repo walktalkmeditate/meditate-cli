@@ -284,6 +284,8 @@ fn ramp_for(secs: f32, sample_rate: u32) -> f32 {
 /// silent one is a safe no-op for headless runs and machines with no device.
 pub trait AudioBackend {
     fn bell(&self);
+    /// Ring a decoded bell sample as a one-shot (no soundscape ducking).
+    fn play_bell(&self, samples: Arc<Vec<f32>>);
     fn set_master(&self, volume: f32);
     fn set_muted(&self, muted: bool);
     fn play_soundscape(&self, samples: Arc<Vec<f32>>);
@@ -297,6 +299,7 @@ pub struct SilentBackend;
 
 impl AudioBackend for SilentBackend {
     fn bell(&self) {}
+    fn play_bell(&self, _samples: Arc<Vec<f32>>) {}
     fn set_master(&self, _volume: f32) {}
     fn set_muted(&self, _muted: bool) {}
     fn play_soundscape(&self, _samples: Arc<Vec<f32>>) {}
