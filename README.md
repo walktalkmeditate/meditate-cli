@@ -4,6 +4,12 @@ A terminal breathing companion — paced breathing, soundscapes, and voice guide
 right where you already work. Open it in the mid-day drag and breathe through the
 next twenty minutes without reaching for your phone.
 
+[![Release](https://img.shields.io/github/v/release/walktalkmeditate/meditate-cli?color=2f9e44&label=release)](https://github.com/walktalkmeditate/meditate-cli/releases)
+[![CI](https://github.com/walktalkmeditate/meditate-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/walktalkmeditate/meditate-cli/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-2f9e44.svg)](LICENSE)
+
+![meditate breathing in the terminal](demo/meditate.gif)
+
 ```
 meditate
 ```
@@ -57,12 +63,17 @@ quits gracefully).
 **Patterns:** Calm (5/7) · Equal (4/4) · Relaxing (4-7-8) · Box (4-4-4-4) ·
 Coherent (5/5) · Deep calm (3/6) · None (open focus).
 
-**Sound packs** (optional, opt-in):
+**Sound packs** (optional — the breathing and a synthesized bell need no
+downloads at all):
 
 ```sh
-meditate download soundscapes
-meditate download voices
+meditate download soundscapes   # ambient loops      — press s to cycle
+meditate download voices        # meditation guides   — press v to cycle
+meditate download bells         # start/end bells     — press b to cycle (synth stays the default)
 ```
+
+Re-running a download only fetches what you don't already have. Voice packs pull
+their meditation prompts only — walk guidance is never downloaded.
 
 **Other commands:** `meditate config` · `meditate streak` ·
 `meditate integration install` (shell/tmux breathe nudges).
@@ -83,3 +94,8 @@ ever makes is a pack download you explicitly ask for.
 
 MIT. A gift to the terminal community — and a quiet door to the
 [Pilgrim](https://pilgrimapp.org) app if you'd like to keep walking with it.
+
+---
+
+<sub>The demo above is generated with [VHS](https://github.com/charmbracelet/vhs):
+`vhs demo/meditate.tape`.</sub>
