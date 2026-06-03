@@ -8,8 +8,9 @@ use crate::keymap::{Action, Keymap};
 use crate::pack::{self, AssetKind};
 use crate::palette::{self, season_for_month, time_for_hour};
 use crate::paths;
+use crate::render::graphics::{self, ImageRenderer};
 use crate::render::orb::{self, OrbScene};
-use crate::render::{graphics, renderer_for, Surface};
+use crate::render::{renderer_for, Surface};
 use crate::state::State;
 use crate::streak;
 use crate::term::{Capabilities, Env, GraphicsProtocol, SystemEnv};
@@ -177,7 +178,7 @@ fn use_graphics(cli: &Cli, config: &Config, caps: &Capabilities, env: &impl Env)
     if cli.no_graphics || config.graphics == Some(false) || env.has("TMUX") {
         return false;
     }
-    matches!(caps.graphics, GraphicsProtocol::Kitty)
+    !matches!(caps.graphics, GraphicsProtocol::None)
 }
 
 /// Pushes the terminal's title onto its stack on creation and pops it on drop,
@@ -356,7 +357,7 @@ struct Session {
     last_title: String,
     waiting: Option<Waiter>,
     wait_report: Option<wait::WaitReport>,
-    graphics: Option<graphics::KittyRenderer>,
+    graphics: Option<Box<dyn ImageRenderer>>,
 }
 
 struct Outcome {
@@ -390,6 +391,16 @@ impl Session {
         let master = f32::from(config.master_volume.or(state.master_volume).unwrap_or(80)) / 100.0;
         audio.set_master(master);
 
+        let graphics: Option<Box<dyn ImageRenderer>> = if use_graphics(cli, config, &caps, &env) {
+            match caps.graphics {
+                GraphicsProtocol::Kitty => Some(Box::new(graphics::KittyRenderer::new())),
+                GraphicsProtocol::ITerm2 => Some(Box::new(graphics::ITerm2Renderer::new())),
+                GraphicsProtocol::None => None,
+            }
+        } else {
+            None
+        };
+
         let mut session = Session {
             breath: Breath::new(breath::pattern_by_name(&pattern_name), Duration::ZERO),
             renderer: renderer_for(&caps),
@@ -414,7 +425,7 @@ impl Session {
             last_title: String::new(),
             waiting: None,
             wait_report: None,
-            graphics: use_graphics(cli, config, &caps, &env).then(graphics::KittyRenderer::new),
+            graphics,
         };
         session.restore(config, state);
         // Opening strike — uses the restored bell if one was selected, else synth.
@@ -786,6 +797,10 @@ impl Session {
             Duration::from_millis(200)
         } else if matches!(phase, Phase::HoldIn | Phase::HoldOut | Phase::Still) {
             Duration::from_millis(100)
+        } else if self.graphics.is_some() {
+            // A full image transmits each frame; ~22fps keeps bandwidth in check
+            // and is imperceptible on the slow-moving orb.
+            Duration::from_millis(45)
         } else {
             Duration::from_millis(33)
         }
@@ -918,8 +933,9 @@ impl Session {
                 }
             }
         }
+        let teardown = kitty.teardown();
         let mut stdout = io::stdout();
-        let _ = stdout.write_all(graphics::teardown().as_bytes());
+        let _ = stdout.write_all(teardown.as_bytes());
         let _ = stdout.flush();
     }
 }

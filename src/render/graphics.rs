@@ -1,17 +1,21 @@
-//! The orb as a real image, over the kitty graphics protocol.
+//! The orb as a real image, over a terminal inline-graphics protocol.
 //!
 //! The orb already rasterizes into an RGB [`Surface`]; here we paint it into a
 //! higher-resolution, square-pixel surface and hand the pixels to the terminal
-//! as an actual image. The kitty protocol scales the image into the orb's cell
-//! region, so the circle stays round without us needing the cell pixel size.
-//! kitty, Ghostty, and WezTerm all speak this protocol.
+//! as an actual image, scaled into the orb's cell region (so the circle stays
+//! round without us needing the cell pixel size).
+//!
+//! - [`KittyRenderer`] — the kitty graphics protocol (kitty, Ghostty, WezTerm),
+//!   raw RGBA, no encoding dependency.
+//! - [`ITerm2Renderer`] — iTerm2's OSC 1337 inline images, which want an image
+//!   container; we emit a 24-bit BMP (NSImage decodes it, no zlib/CRC needed).
 
 use crate::render::Surface;
 
 /// kitty caps escape payloads at 4096 bytes per chunk.
 const CHUNK: usize = 4096;
 
-/// One image id we reuse every frame, replacing its pixels in place.
+/// One kitty image id we reuse every frame, replacing its pixels in place.
 const IMAGE_ID: u32 = 1;
 
 /// Supersample factor for the offscreen render: denser than the half-block grid
@@ -27,34 +31,22 @@ pub fn surface_size(cols: usize, orb_rows: usize) -> (usize, usize) {
     (cols * ss, orb_rows * 2 * ss)
 }
 
+/// A renderer that emits the orb image as terminal escapes.
+pub trait ImageRenderer {
+    /// Escapes that draw `surface` scaled to occupy `cols × rows` cells at the
+    /// cursor, replacing the previous frame.
+    fn frame(&self, surface: &Surface, cols: usize, rows: usize) -> String;
+    /// Escapes that remove any lingering image on exit.
+    fn teardown(&self) -> String;
+}
+
+// ── kitty graphics protocol ──────────────────────────────────────────────────
+
 pub struct KittyRenderer;
 
 impl KittyRenderer {
     pub fn new() -> KittyRenderer {
         KittyRenderer
-    }
-
-    /// Escapes that transmit `surface` as RGBA and place it, scaled to occupy
-    /// `cols × rows` cells at the cursor, replacing the previous frame.
-    pub fn frame(&self, surface: &Surface, cols: usize, rows: usize) -> String {
-        let (w, h) = (surface.width(), surface.height());
-        let mut rgba = Vec::with_capacity(w * h * 4);
-        for y in 0..h {
-            for x in 0..w {
-                let p = surface.get(x, y);
-                rgba.extend_from_slice(&[p.r, p.g, p.b, 255]);
-            }
-        }
-        let payload = base64(&rgba);
-
-        let mut out = String::new();
-        // Drop the previous frame's placements so frames don't stack.
-        out.push_str(&format!("\x1b_Ga=d,d=i,i={IMAGE_ID}\x1b\\"));
-        // C=1 keeps the cursor put; q=2 silences kitty's acknowledgements (we
-        // never read them back from raw mode).
-        let keys = format!("a=T,f=32,s={w},v={h},i={IMAGE_ID},c={cols},r={rows},C=1,q=2");
-        emit_chunked(&mut out, &keys, &payload);
-        out
     }
 }
 
@@ -64,9 +56,26 @@ impl Default for KittyRenderer {
     }
 }
 
-/// Remove every image — used on teardown so nothing lingers on the screen.
-pub fn teardown() -> String {
-    "\x1b_Ga=d,d=a\x1b\\".to_string()
+impl ImageRenderer for KittyRenderer {
+    fn frame(&self, surface: &Surface, cols: usize, rows: usize) -> String {
+        let payload = base64(&rgba(surface));
+        let mut out = String::new();
+        // Drop the previous frame's placements so frames don't stack.
+        out.push_str(&format!("\x1b_Ga=d,d=i,i={IMAGE_ID}\x1b\\"));
+        // C=1 keeps the cursor put; q=2 silences kitty's acknowledgements (we
+        // never read them back from raw mode).
+        let keys = format!(
+            "a=T,f=32,s={},v={},i={IMAGE_ID},c={cols},r={rows},C=1,q=2",
+            surface.width(),
+            surface.height()
+        );
+        emit_chunked(&mut out, &keys, &payload);
+        out
+    }
+
+    fn teardown(&self) -> String {
+        "\x1b_Ga=d,d=a\x1b\\".to_string()
+    }
 }
 
 /// Write the payload as one or more chunked `_G` escapes. The first carries the
@@ -91,6 +100,89 @@ fn emit_chunked(out: &mut String, keys: &str, payload: &str) {
         }
         start = end;
     }
+}
+
+// ── iTerm2 OSC 1337 inline images ────────────────────────────────────────────
+
+pub struct ITerm2Renderer;
+
+impl ITerm2Renderer {
+    pub fn new() -> ITerm2Renderer {
+        ITerm2Renderer
+    }
+}
+
+impl Default for ITerm2Renderer {
+    fn default() -> ITerm2Renderer {
+        ITerm2Renderer::new()
+    }
+}
+
+impl ImageRenderer for ITerm2Renderer {
+    fn frame(&self, surface: &Surface, cols: usize, rows: usize) -> String {
+        let bmp = bmp_24(surface);
+        let payload = base64(&bmp);
+        format!(
+            "\x1b]1337;File=inline=1;width={cols};height={rows};preserveAspectRatio=0;size={}:{payload}\x07",
+            bmp.len()
+        )
+    }
+
+    fn teardown(&self) -> String {
+        // Inline images are grid content; leaving the alt screen clears them.
+        String::new()
+    }
+}
+
+/// A 24-bit, bottom-up BMP of the surface (BGR, rows padded to 4 bytes). No
+/// compression, no checksums — the simplest container NSImage will decode.
+fn bmp_24(surface: &Surface) -> Vec<u8> {
+    let (w, h) = (surface.width(), surface.height());
+    let row_bytes = w * 3;
+    let padded = (row_bytes + 3) & !3;
+    let pixels = padded * h;
+    let file_size = 14 + 40 + pixels;
+
+    let mut out = Vec::with_capacity(file_size);
+    out.extend_from_slice(b"BM");
+    out.extend_from_slice(&(file_size as u32).to_le_bytes());
+    out.extend_from_slice(&[0, 0, 0, 0]); // reserved
+    out.extend_from_slice(&54u32.to_le_bytes()); // pixel data offset (14 + 40)
+    out.extend_from_slice(&40u32.to_le_bytes()); // BITMAPINFOHEADER size
+    out.extend_from_slice(&(w as i32).to_le_bytes());
+    out.extend_from_slice(&(h as i32).to_le_bytes()); // positive height = bottom-up
+    out.extend_from_slice(&1u16.to_le_bytes()); // planes
+    out.extend_from_slice(&24u16.to_le_bytes()); // bits per pixel
+    out.extend_from_slice(&0u32.to_le_bytes()); // BI_RGB (uncompressed)
+    out.extend_from_slice(&(pixels as u32).to_le_bytes());
+    out.extend_from_slice(&2835u32.to_le_bytes()); // ~72 DPI x
+    out.extend_from_slice(&2835u32.to_le_bytes()); // ~72 DPI y
+    out.extend_from_slice(&0u32.to_le_bytes()); // palette colors
+    out.extend_from_slice(&0u32.to_le_bytes()); // important colors
+
+    let pad = padded - row_bytes;
+    for y in (0..h).rev() {
+        for x in 0..w {
+            let p = surface.get(x, y);
+            out.extend_from_slice(&[p.b, p.g, p.r]);
+        }
+        out.extend(std::iter::repeat_n(0u8, pad));
+    }
+    out
+}
+
+// ── shared helpers ───────────────────────────────────────────────────────────
+
+fn rgba(surface: &Surface) -> Vec<u8> {
+    let (w, h) = (surface.width(), surface.height());
+    let mut buf = Vec::with_capacity(w * h * 4);
+    for y in 0..h {
+        for x in 0..w {
+            let p = surface.get(x, y);
+            buf.extend_from_slice(&[p.r, p.g, p.b, 255]);
+        }
+    }
+    buf
 }
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -140,36 +232,59 @@ mod tests {
     }
 
     #[test]
-    fn frame_deletes_then_transmits_and_places() {
+    fn kitty_frame_deletes_then_transmits_and_places() {
         let mut surface = Surface::new(2, 2, Rgb::new(10, 20, 30));
         surface.set(0, 0, Rgb::new(255, 0, 0));
         let escapes = KittyRenderer::new().frame(&surface, 4, 3);
 
-        // Clears the prior placement before transmitting.
         let delete = escapes.find("a=d,d=i").expect("delete escape");
         let transmit = escapes.find("a=T").expect("transmit escape");
         assert!(delete < transmit, "must delete before placing");
-
-        // Carries the size, image id, and cell-region placement keys.
         assert!(escapes.contains("s=2,v=2"));
         assert!(escapes.contains("c=4,r=3"));
         assert!(escapes.contains("f=32"));
-        // Properly framed APC escape.
         assert!(escapes.contains("\x1b_G"));
         assert!(escapes.ends_with("\x1b\\"));
     }
 
     #[test]
-    fn large_frame_is_chunked() {
+    fn kitty_large_frame_is_chunked() {
         let surface = Surface::new(64, 64, Rgb::new(1, 2, 3));
         let escapes = KittyRenderer::new().frame(&surface, 10, 5);
-        // 64*64*4 bytes -> base64 well over one 4096-byte chunk -> m=1 appears.
         assert!(escapes.contains("m=1"));
         assert!(escapes.contains("m=0"));
     }
 
     #[test]
-    fn teardown_deletes_all_images() {
-        assert_eq!(teardown(), "\x1b_Ga=d,d=a\x1b\\");
+    fn kitty_teardown_deletes_all_images() {
+        assert_eq!(KittyRenderer::new().teardown(), "\x1b_Ga=d,d=a\x1b\\");
+    }
+
+    #[test]
+    fn bmp_has_header_dimensions_and_size() {
+        let surface = Surface::new(2, 3, Rgb::new(7, 8, 9));
+        let bmp = bmp_24(&surface);
+        assert_eq!(&bmp[0..2], b"BM");
+        // width and height in the BITMAPINFOHEADER (offset 18 and 22).
+        assert_eq!(i32::from_le_bytes(bmp[18..22].try_into().unwrap()), 2);
+        assert_eq!(i32::from_le_bytes(bmp[22..26].try_into().unwrap()), 3);
+        // 2px row = 6 bytes -> padded to 8; 8 * 3 rows + 54 header.
+        assert_eq!(bmp.len(), 54 + 8 * 3);
+        assert_eq!(
+            u32::from_le_bytes(bmp[2..6].try_into().unwrap()) as usize,
+            bmp.len()
+        );
+    }
+
+    #[test]
+    fn iterm2_frame_wraps_a_bmp_in_osc_1337() {
+        let surface = Surface::new(2, 2, Rgb::new(1, 2, 3));
+        let frame = ITerm2Renderer::new().frame(&surface, 4, 3);
+        assert!(frame.starts_with("\x1b]1337;File=inline=1;"));
+        assert!(frame.contains("width=4;height=3"));
+        assert!(frame.contains("preserveAspectRatio=0"));
+        assert!(frame.ends_with('\x07'));
+        // The payload base64 starts with "Qk" — the encoding of the "BM" signature.
+        assert!(frame.contains(":Qk"));
     }
 }

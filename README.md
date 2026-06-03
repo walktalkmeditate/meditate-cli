@@ -17,6 +17,10 @@ meditate
 A moss-colored orb breathes in time with you; press a key to switch patterns or
 sounds; press `q` when the meeting picks back up.
 
+On graphics-capable terminals (**kitty, Ghostty, WezTerm, iTerm2**) the orb is
+drawn as a real, smooth image; everywhere else it falls back to a crisp
+half-block orb. Force the blocks with `--no-graphics` (or `graphics = false`).
+
 ## Install
 
 **Homebrew (macOS / Linux)**
