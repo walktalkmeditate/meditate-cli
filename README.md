@@ -34,6 +34,15 @@ half-block orb. Force the blocks with `--no-graphics` (or `graphics = false`).
 brew install walktalkmeditate/tap/meditate
 ```
 
+**Cargo (crates.io)**
+
+```sh
+cargo install meditate
+```
+
+On Linux, building the bundled audio needs the ALSA dev headers
+(`libasound2-dev` on Debian/Ubuntu); macOS needs nothing extra.
+
 **One-line installers**
 
 ```sh
@@ -49,7 +58,7 @@ irm https://raw.githubusercontent.com/walktalkmeditate/meditate-cli/main/install
 **From source** (Rust 1.82+)
 
 ```sh
-cargo install --path . --features audio,download
+cargo install --path .
 ```
 
 The core breathing experience works with **zero downloads**. Sound packs are
