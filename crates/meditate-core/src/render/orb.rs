@@ -6,6 +6,9 @@ pub const MIN_SCALE: f32 = 0.45;
 pub const MAX_SCALE: f32 = 1.0;
 pub const STILL_SCALE: f32 = 0.7;
 
+/// Half-thickness (in pixels) of the breath ripple ring.
+const RIPPLE_HALF_WIDTH: f32 = 1.6;
+
 /// Smoothstep easing, matching the felt curve of the iOS `.easeInOut` orb.
 pub fn ease_in_out(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
@@ -76,14 +79,14 @@ pub fn paint(surface: &mut Surface, scene: &OrbScene) {
             }
 
             for &life in &scene.ripples {
-                let ring_radius = lerp(base * 0.4, base * 1.25, life);
+                let ring_radius = lerp(base * 0.5, base * 1.2, life);
                 let edge = (dist - ring_radius).abs();
-                if edge < 1.0 {
+                if edge < RIPPLE_HALF_WIDTH {
                     surface.blend(
                         x,
                         y,
                         scene.palette.ripple,
-                        (1.0 - life) * 0.3 * (1.0 - edge),
+                        (1.0 - life) * 0.55 * (1.0 - edge / RIPPLE_HALF_WIDTH),
                     );
                 }
             }

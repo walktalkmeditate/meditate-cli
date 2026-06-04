@@ -180,12 +180,8 @@ export class SmoothOrb {
     ctx.arc(cx, cy, (CORE_FRAME / 2) * s, 0, Math.PI * 2);
     ctx.fill();
 
-    // Ring — moss 0.25+glow·0.15, frame 200pt at scale·1.3, opacity = scale.
-    ctx.strokeStyle = `rgba(${pal[0]}, ${pal[1]}, ${pal[2]}, ${(0.25 + glow * 0.15) * scale})`;
-    ctx.lineWidth = (1 + glow * 0.5) * unit;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 100 * unit * scale * 1.3, 0, Math.PI * 2);
-    ctx.stroke();
+    // (No steady outline — the one intentional ring is the per-breath ripple
+    // pulse above, so nothing flickers in and out with the breath.)
 
     ctx.globalAlpha = 1;
   }

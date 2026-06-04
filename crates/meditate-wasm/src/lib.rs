@@ -21,6 +21,10 @@ use meditate_core::title;
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
 
+/// How long a breath ripple takes to expand and fade (seconds). Mirrors the
+/// CLI session's RIPPLE_TTL.
+const RIPPLE_TTL: f32 = 3.0;
+
 /// A live breathing session: a breath engine plus the resolved palette and the
 /// truecolor half-block renderer (the web terminal is always truecolor).
 #[wasm_bindgen]
@@ -31,6 +35,10 @@ pub struct Session {
     last_state: PhaseState,
     last_title: String,
     last_now: Duration,
+    /// Each ripple's life 0.0 (just emitted) to 1.0 (faded). One is emitted on
+    /// every completed breath — the radiating pulse the smooth orb also shows.
+    ripples: Vec<f32>,
+    last_breath: u32,
 }
 
 #[wasm_bindgen]
@@ -55,7 +63,25 @@ impl Session {
             last_state,
             last_title: String::new(),
             last_now: Duration::ZERO,
+            ripples: Vec::new(),
+            last_breath: 0,
         }
+    }
+
+    /// Emit a ripple on each newly completed breath, then age and cull the rest.
+    fn advance_ripples(&mut self, dt: f32) {
+        let breath = self.breath.breath_count();
+        if breath > self.last_breath {
+            self.ripples.push(0.0);
+            if self.ripples.len() > 3 {
+                self.ripples.remove(0);
+            }
+        }
+        self.last_breath = breath;
+        for life in self.ripples.iter_mut() {
+            *life += dt / RIPPLE_TTL;
+        }
+        self.ripples.retain(|&life| life < 1.0);
     }
 
     /// Switch breathing pattern, easing from the current breath into a fresh
@@ -85,9 +111,11 @@ impl Session {
     #[wasm_bindgen(js_name = tickFrame)]
     pub fn tick_frame(&mut self, elapsed_ms: f64, cols: u32, rows: u32) -> String {
         let now = elapsed_to_now(elapsed_ms);
+        let dt = now.saturating_sub(self.last_now).as_secs_f32();
         self.last_now = now;
         let state = self.breath.tick(now);
         self.last_state = state;
+        self.advance_ripples(dt);
 
         let (cols, rows) = (cols as usize, rows as usize);
         if cols == 0 || rows == 0 {
@@ -97,7 +125,7 @@ impl Session {
         let scene = OrbScene {
             scale: orb::scale_for(state),
             glow: orb::glow_for(state),
-            ripples: Vec::new(),
+            ripples: self.ripples.clone(),
             milestone_flash: 0.0,
             palette: self.palette,
         };
@@ -124,6 +152,9 @@ impl Session {
         let now = elapsed_to_now(elapsed_ms);
         self.last_now = now;
         self.last_state = self.breath.tick(now);
+        // The smooth orb owns its own ripples; keep ours from bursting on return.
+        self.last_breath = self.breath.breath_count();
+        self.ripples.clear();
         let title = title::breath_title(self.last_state);
         if title != self.last_title {
             self.last_title = title.clone();
