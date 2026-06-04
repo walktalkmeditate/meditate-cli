@@ -1,0 +1,18 @@
+[package]
+name = "meditate-wasm"
+version = "0.2.1"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+description = "wasm-bindgen façade exposing the meditate breath engine to the browser."
+repository = "https://github.com/walktalkmeditate/meditate-cli"
+
+[lib]
+# cdylib for the wasm build; rlib so the native test suite can drive the façade.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+meditate-core = { path = "../meditate-core" }
+# Pinned: the wasm-bindgen library version must match the wasm-bindgen CLI used
+# in web/scripts/build-wasm.sh, and stay within the 1.82 MSRV.
+wasm-bindgen = "=0.2.95"
