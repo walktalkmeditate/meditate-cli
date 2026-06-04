@@ -38,6 +38,7 @@ function makeContext() {
     // Only the methods the commands under test touch are real.
     session: session as unknown as CommandContext['session'],
     term: { clear: vi.fn() } as unknown as CommandContext['term'],
+    audio: {} as unknown as CommandContext['audio'],
     version: '0.0.0',
     page: calls.page,
     status: calls.status,

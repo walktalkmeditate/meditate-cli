@@ -1,10 +1,12 @@
 import type { Session } from '../wasm/meditate_wasm.js';
 import type { Terminal } from '@xterm/xterm';
+import type { AudioEngine } from '../audio';
 
-/** Services a command can use. Grown by later units (audio, store, orb mode). */
+/** Services a command can use. Grown by later units (store, orb mode). */
 export interface CommandContext {
   session: Session;
   term: Terminal;
+  audio: AudioEngine;
   version: string;
   /** Show a full-screen page; the orb pauses until the user presses a key. */
   page: (text: string) => void;
