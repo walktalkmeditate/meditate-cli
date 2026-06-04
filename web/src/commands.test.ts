@@ -47,6 +47,8 @@ function makeContext() {
       current = name;
       calls.setPattern(name);
     },
+    graphicsMode: () => false,
+    setGraphics: vi.fn(),
     commandNames: () => [...registry.map.keys()],
     visibleCommands: () => registry.list.filter((c) => !c.hidden),
   };

@@ -16,6 +16,9 @@ export interface CommandContext {
   currentPattern: () => string;
   /** Switch breathing pattern and confirm (keeps pattern logic in one place). */
   setPattern: (name: string) => void;
+  /** Whether the smooth Canvas-2D orb is showing (vs the half-block orb). */
+  graphicsMode: () => boolean;
+  setGraphics: (smooth: boolean) => void;
   /** All command names + aliases (incl. hidden), for tab-completion. */
   commandNames: () => string[];
   /** Non-hidden commands, for `help` and `man` (kept honest as units land). */
