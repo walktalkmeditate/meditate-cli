@@ -110,6 +110,25 @@ impl Session {
         out
     }
 
+    /// Advance the breath without rendering the half-block orb — used when the
+    /// smooth Canvas-2D orb is showing, so the terminal stays dark behind it.
+    /// Returns only the OSC-0 title bytes (when the title changed), so the tab
+    /// keeps breathing; the accessors (`scale`, `glow`, `palette`) drive the
+    /// canvas.
+    #[wasm_bindgen(js_name = tickSilent)]
+    pub fn tick_silent(&mut self, elapsed_ms: f64) -> String {
+        let now = Duration::from_secs_f64((elapsed_ms.max(0.0)) / 1000.0);
+        self.last_now = now;
+        self.last_state = self.breath.tick(now);
+        let title = title::breath_title(self.last_state);
+        if title != self.last_title {
+            self.last_title = title.clone();
+            title::set_sequence(&title)
+        } else {
+            String::new()
+        }
+    }
+
     /// Breath fullness in `0.0..=1.0` (empty at the bottom of the exhale, full at
     /// the top of the inhale) — the smooth-orb canvas reads this for the radius.
     pub fn fullness(&self) -> f32 {

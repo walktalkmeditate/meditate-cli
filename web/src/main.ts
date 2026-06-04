@@ -3,6 +3,7 @@ import init, { Session } from './wasm/meditate_wasm.js';
 import { createTerminal } from './terminal';
 import { startBreathing } from './loop';
 import { BreathingFavicon } from './favicon';
+import { SmoothOrb } from './orb-canvas';
 import { Repl } from './repl';
 import { PATTERNS } from './patterns';
 import { moss, dim } from './ansi';
@@ -38,6 +39,10 @@ async function boot(): Promise<void> {
   const now = new Date();
   let currentPattern = 'calm';
   const session = new Session(currentPattern, now.getMonth() + 1, now.getHours());
+
+  // The smooth orb (a Canvas-2D overlay) runs its own loop; `graphics` toggles it.
+  let smoothMode = false;
+  const smoothOrb = new SmoothOrb(screen);
 
   // The breathing browser tab lives in the icon (see favicon.ts).
   const favicon = new BreathingFavicon();
@@ -101,6 +106,10 @@ async function boot(): Promise<void> {
       currentPattern = name;
       setStatus(patternStatus(name));
     },
+    graphicsMode: () => smoothMode,
+    setGraphics: (smooth) => {
+      smoothMode = smooth;
+    },
     commandNames: () => [...registry.map.keys()],
     visibleCommands: () => registry.list.filter((c) => !c.hidden),
   };
@@ -140,6 +149,7 @@ async function boot(): Promise<void> {
       { label: 'pause', command: 'pause' },
       { label: 'sound', command: 'sound' },
       { label: 'bell', command: 'bell' },
+      { label: 'orb', command: 'graphics' },
       { label: 'help', command: 'help' },
       { label: 'install', command: 'install' },
     ];
@@ -152,7 +162,10 @@ async function boot(): Promise<void> {
     );
   }
 
-  const refit = (): void => fit.fit();
+  const refit = (): void => {
+    fit.fit();
+    smoothOrb.resize();
+  };
   window.addEventListener('resize', refit);
   window.visualViewport?.addEventListener('resize', refit);
 
@@ -163,8 +176,12 @@ async function boot(): Promise<void> {
     reduceMotion,
     bottomLine,
     isPaging: () => paging,
+    orbMode: () => (smoothMode ? 'smooth' : 'block'),
     afterDraw: reflectBreath,
   });
+
+  // The smooth orb draws only when in graphics mode and no page is up.
+  smoothOrb.start(session, () => smoothMode && !paging);
 
   // The login MOTD: a brief banner that fades to the breathing orb (or any key).
   showPage(renderMotd(VERSION), reduceMotion ? 2500 : 4200);

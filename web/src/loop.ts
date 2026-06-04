@@ -48,6 +48,9 @@ export interface LoopOptions {
    *  and the orb should not overdraw it. The breath keeps absolute time, so it
    *  resumes at the correct phase. */
   isPaging?: () => boolean;
+  /** `'smooth'` suppresses the half-block orb (advancing the breath silently) so
+   *  the Canvas-2D orb shows over a dark terminal; `'block'` draws the orb. */
+  orbMode?: () => 'block' | 'smooth';
   /** Called after each drawn frame (the session's accessors are current) —
    *  used to drive the breathing favicon and the tab title. */
   afterDraw?: () => void;
@@ -68,6 +71,7 @@ export function startBreathing(opts: LoopOptions): LoopHandle {
   let raf = 0;
   let startedAt = -1;
   let lastDraw = -1;
+  let wasSmooth = false;
 
   const frame = (t: number) => {
     raf = requestAnimationFrame(frame);
@@ -79,15 +83,27 @@ export function startBreathing(opts: LoopOptions): LoopHandle {
     const { cols, rows } = opts.term;
     if (cols === 0 || rows === 0) return;
 
-    const orbRows = Math.max(1, rows - 1);
-    const orb = opts.session.tickFrame(t - startedAt, cols, orbRows);
-
-    // `\x1b[K` erases to end of the row so a shrinking prompt/status leaves no
-    // stale characters behind (the orb rows are full-width and self-overwrite).
+    const elapsed = t - startedAt;
     const bottom = opts.bottomLine();
-    const tail = bottom !== null ? `\r\n${bottom}\x1b[K` : '';
+    // `\x1b[K` erases to end of the row so a shrinking prompt/status leaves no
+    // stale characters behind.
+    const promptTail = bottom !== null ? `${bottom}\x1b[K` : '';
+    const smooth = opts.orbMode?.() === 'smooth';
 
-    opts.term.write(frameSequence(orb + tail));
+    if (smooth) {
+      // The Canvas-2D orb draws the orb; the terminal just advances the breath
+      // (for the tab title) and shows the prompt on the last row. Clear the
+      // block orb once on entering smooth mode, then leave the dark region be.
+      const head = opts.session.tickSilent(elapsed);
+      const clear = wasSmooth ? '' : '\x1b[2J';
+      opts.term.write(frameSequence(`${head}${clear}\x1b[${rows};1H${promptTail}`));
+    } else {
+      const orbRows = Math.max(1, rows - 1);
+      const orb = opts.session.tickFrame(elapsed, cols, orbRows);
+      opts.term.write(frameSequence(`${orb}\r\n${promptTail}`));
+    }
+
+    wasSmooth = smooth;
     opts.afterDraw?.();
   };
 

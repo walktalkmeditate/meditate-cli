@@ -9,6 +9,14 @@
   background-color: transparent !important;
 }
 
+/* The smooth orb canvas overlays the terminal; it never eats input. */
+#orb {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
 /* Touch chip row — every essential action without a keyboard. */
 #chips {
   position: fixed;

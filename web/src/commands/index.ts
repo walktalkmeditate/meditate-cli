@@ -26,6 +26,17 @@ const clearCommand: Command = {
   },
 };
 
+const graphicsCommand: Command = {
+  name: 'graphics',
+  aliases: ['orb'],
+  summary: 'toggle the smooth orb',
+  run: (_args, ctx) => {
+    const smooth = !ctx.graphicsMode();
+    ctx.setGraphics(smooth);
+    ctx.status(smooth ? 'graphics: smooth' : 'graphics: blocks');
+  },
+};
+
 function cyclePattern(ctx: CommandContext, dir: number): void {
   const i = PATTERNS.indexOf(ctx.currentPattern() as (typeof PATTERNS)[number]);
   const next = PATTERNS[(((i < 0 ? 0 : i) + dir) % PATTERNS.length + PATTERNS.length) % PATTERNS.length];
@@ -63,6 +74,7 @@ export function buildRegistry(extra: Command[] = []): Registry {
     nextCommand,
     prevCommand,
     ...extra,
+    graphicsCommand,
     clearCommand,
     helpCommand,
     manCommand,
