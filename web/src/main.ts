@@ -209,6 +209,7 @@ async function boot(): Promise<void> {
       { label: 'pattern', command: 'next' },
       { label: 'pause', command: 'pause' },
       { label: 'sound', command: 'sound' },
+      { label: 'voice', command: 'voice' },
       { label: 'bell', command: 'bell' },
       { label: 'orb', command: 'graphics' },
       { label: 'help', command: 'help' },
