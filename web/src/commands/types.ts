@@ -1,12 +1,15 @@
 import type { Session } from '../wasm/meditate_wasm.js';
 import type { Terminal } from '@xterm/xterm';
 import type { AudioEngine } from '../audio';
+import type { Persistence } from '../store';
+import type { DeepLink } from '../deeplink';
 
-/** Services a command can use. Grown by later units (store, orb mode). */
+/** Services a command can use. */
 export interface CommandContext {
   session: Session;
   term: Terminal;
   audio: AudioEngine;
+  store: Persistence;
   version: string;
   /** Show a full-screen page; the orb pauses until the user presses a key. */
   page: (text: string) => void;
@@ -19,6 +22,10 @@ export interface CommandContext {
   /** Whether the smooth Canvas-2D orb is showing (vs the half-block orb). */
   graphicsMode: () => boolean;
   setGraphics: (smooth: boolean) => void;
+  /** Track the active soundscape (for the share link + persistence). */
+  setSound: (id: string | null) => void;
+  /** The current session config, for building a share link. */
+  shareLink: () => DeepLink;
   /** All command names + aliases (incl. hidden), for tab-completion. */
   commandNames: () => string[];
   /** Non-hidden commands, for `help` and `man` (kept honest as units land). */
