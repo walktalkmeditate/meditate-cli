@@ -1,0 +1,10 @@
+.xterm {
+  height: 100%;
+  padding: 0;
+}
+
+/* The terminal owns the whole viewport; the orb paints its own background per
+   cell, so the page background only shows in the thin fit margins. */
+#screen .xterm-viewport {
+  background-color: transparent !important;
+}
