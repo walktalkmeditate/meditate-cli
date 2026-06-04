@@ -3,6 +3,16 @@ import init, { Session } from './wasm/meditate_wasm.js';
 import { createTerminal } from './terminal';
 import { startBreathing } from './loop';
 import { BreathingFavicon } from './favicon';
+import { Repl } from './repl';
+import { PATTERNS } from './patterns';
+import { moss, dim } from './ansi';
+import { renderMotd } from './motd';
+import { buildRegistry, runCommand, patternStatus } from './commands';
+import type { CommandContext } from './commands';
+import { isTouch, createChipBar } from './mobile';
+
+const VERSION = '0.2.1';
+const PROMPT = `${moss('❯')} `;
 
 /** Fade out and remove the zero-JS loading placeholder once the orb is live. */
 function dismissLoading(): void {
@@ -12,28 +22,25 @@ function dismissLoading(): void {
   setTimeout(() => el.remove(), 600);
 }
 
-async function boot(): Promise<void> {
-  const reduceMotion = window.matchMedia(
-    '(prefers-reduced-motion: reduce)',
-  ).matches;
+const toCRLF = (text: string): string => text.replace(/\n/g, '\r\n');
 
-  // Load the Rust breath core. The placeholder stays up through this.
+async function boot(): Promise<void> {
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   await init();
 
   const screen = document.getElementById('screen');
   if (!screen) throw new Error('missing #screen mount');
   const { term, fit } = createTerminal(screen);
+  term.write('\x1b[?25l'); // hide xterm's cursor — the REPL draws its own
 
-  // The core has no clock — inject the browser's month/hour so the palette
-  // shifts with season and time of day (R9).
   const now = new Date();
-  const session = new Session('calm', now.getMonth() + 1, now.getHours());
+  let currentPattern = 'calm';
+  const session = new Session(currentPattern, now.getMonth() + 1, now.getHours());
 
-  // The breathing browser tab lives in the *icon*: a small canvas orb that
-  // pulses with the breath. The title stays a calm phase word (no block bar).
+  // The breathing browser tab lives in the icon (see favicon.ts).
   const favicon = new BreathingFavicon();
   let lastPhase = '';
-  const reflectBreath = () => {
+  const reflectBreath = (): void => {
     favicon.update(session.scale(), session.glow(), session.palette());
     const phase = session.phaseLabel();
     if (phase !== lastPhase) {
@@ -42,27 +49,118 @@ async function boot(): Promise<void> {
     }
   };
 
-  dismissLoading();
+  // ── REPL + command surface ─────────────────────────────────────────────────
+  const registry = buildRegistry();
+  const repl = new Repl(() => [...PATTERNS, ...registry.map.keys()]);
 
-  // First-paint affordance: the orb breathes silently and a dim hint invites
-  // the first interaction (which becomes the audio-unlock gesture in U5).
   let begun = false;
-  const hint = (): string | null =>
-    begun ? null : 'press any key to begin';
-  term.onData(() => {
-    begun = true;
+  let paging = false;
+  let pageTimer = 0;
+  let statusText = '';
+  let statusUntil = 0;
+
+  const setStatus = (line: string): void => {
+    statusText = line;
+    statusUntil = line ? performance.now() + 2600 : 0;
+  };
+
+  const showPage = (text: string, autoDismissMs = 0): void => {
+    paging = true;
+    window.clearTimeout(pageTimer);
+    term.write(
+      '\x1b[2J\x1b[H' + toCRLF(text) + '\r\n\r\n' + dim('  ─ press any key ─'),
+    );
+    if (autoDismissMs > 0) {
+      pageTimer = window.setTimeout(dismissPage, autoDismissMs);
+    }
+  };
+
+  const dismissPage = (): void => {
+    if (!paging) return;
+    paging = false;
+    window.clearTimeout(pageTimer);
+    term.write('\x1b[2J\x1b[H'); // the loop resumes overdrawing from home
+  };
+
+  const ctx: CommandContext = {
+    session,
+    term,
+    version: VERSION,
+    page: (text) => showPage(text),
+    status: setStatus,
+    currentPattern: () => currentPattern,
+    setPattern: (name) => {
+      session.setPattern(name);
+      currentPattern = name;
+      setStatus(patternStatus(name));
+    },
+    commandNames: () => [...registry.map.keys()],
+    visibleCommands: () => registry.list.filter((c) => !c.hidden),
+  };
+
+  const dispatch = (line: string): void => {
+    void runCommand(line, registry, ctx);
+  };
+
+  const interact = (): void => {
+    begun = true; // U5 will resume the AudioContext here (the unlock gesture)
+  };
+
+  term.onData((data) => {
+    interact();
+    if (paging) {
+      dismissPage();
+      return;
+    }
+    const result = repl.handle(data);
+    if (result.submitted !== undefined) dispatch(result.submitted);
   });
 
-  // Keep the grid sized to the window (and to mobile viewport changes).
-  const refit = () => fit.fit();
+  // The bottom row: a transient status, else the live prompt.
+  const bottomLine = (): string => {
+    if (statusText && performance.now() < statusUntil) return '  ' + statusText;
+    return '  ' + repl.line(PROMPT, begun ? null : "type 'help'");
+  };
+
+  dismissLoading();
+
+  // Touch: a chip row so a session is completable without a keyboard. The set
+  // grows as later units add sound / voice / bell / theme / share.
+  if (isTouch()) {
+    const chips = [
+      { label: 'pattern', command: 'next' },
+      { label: 'pause', command: 'pause' },
+      { label: 'help', command: 'help' },
+      { label: 'install', command: 'install' },
+    ];
+    document.body.appendChild(
+      createChipBar(chips, (cmd) => {
+        interact();
+        if (paging) dismissPage();
+        dispatch(cmd);
+      }),
+    );
+  }
+
+  const refit = (): void => fit.fit();
   window.addEventListener('resize', refit);
   window.visualViewport?.addEventListener('resize', refit);
 
-  startBreathing({ term, fit, session, reduceMotion, hint, afterDraw: reflectBreath });
+  startBreathing({
+    term,
+    fit,
+    session,
+    reduceMotion,
+    bottomLine,
+    isPaging: () => paging,
+    afterDraw: reflectBreath,
+  });
+
+  // The login MOTD: a brief banner that fades to the breathing orb (or any key).
+  showPage(renderMotd(VERSION), reduceMotion ? 2500 : 4200);
 }
 
 boot().catch((err) => {
-  // No telemetry — surface failures to the page itself, calmly.
   const loading = document.getElementById('loading');
   if (loading) {
     loading.classList.remove('gone');

@@ -8,3 +8,39 @@
 #screen .xterm-viewport {
   background-color: transparent !important;
 }
+
+/* Touch chip row — every essential action without a keyboard. */
+#chips {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.6rem 0.7rem calc(0.6rem + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, rgba(10, 12, 16, 0.96), rgba(10, 12, 16, 0));
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chip {
+  flex: 0 0 auto;
+  font-family: inherit;
+  font-size: 0.85rem;
+  color: #cfe3d4;
+  background: rgba(96, 138, 102, 0.16);
+  border: 1px solid rgba(134, 184, 144, 0.35);
+  border-radius: 999px;
+  padding: 0.45rem 0.95rem;
+  cursor: pointer;
+}
+
+.chip:active {
+  background: rgba(134, 184, 144, 0.3);
+}
+
+.chip:focus-visible {
+  outline: 2px solid #86b890;
+  outline-offset: 2px;
+}
