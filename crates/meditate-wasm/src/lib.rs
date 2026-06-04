@@ -16,7 +16,7 @@ use meditate_core::palette::{self, season_for_month, time_for_hour, Palette};
 use meditate_core::render::cell_gradient::CellGradient;
 use meditate_core::render::orb::{self, OrbScene};
 use meditate_core::render::Surface;
-use meditate_core::render::{Rgb, Renderer};
+use meditate_core::render::{Renderer, Rgb};
 use meditate_core::title;
 use std::time::Duration;
 use wasm_bindgen::prelude::*;
@@ -168,7 +168,10 @@ mod tests {
         let mut session = Session::new("box", 6, 12);
         let frame = session.tick_frame(0.0, 20, 10);
         assert!(frame.contains('▀'), "expected half-block cells");
-        assert!(frame.contains("\x1b[38;2;"), "expected a truecolor fg escape");
+        assert!(
+            frame.contains("\x1b[38;2;"),
+            "expected a truecolor fg escape"
+        );
         assert!(
             frame.contains("\x1b]0;") && frame.contains("meditate"),
             "expected the OSC-0 breathing title on the first frame"
