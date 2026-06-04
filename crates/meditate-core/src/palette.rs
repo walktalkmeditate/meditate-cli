@@ -1,5 +1,19 @@
-use crate::cli::PalettePin;
 use crate::render::Rgb;
+
+/// A clap-free palette override, mirroring the CLI's `--pin-palette` choices.
+/// Kept here (rather than reusing the CLI's clap `ValueEnum`) so the core stays
+/// dependency-free; the CLI converts its enum into this via `From`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pin {
+    Spring,
+    Summer,
+    Autumn,
+    Winter,
+    Dawn,
+    Day,
+    Dusk,
+    Night,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Season {
@@ -60,27 +74,23 @@ pub fn palette(season: Season, time: TimeOfDay) -> Palette {
 
 /// Resolve the live palette, applying an optional `--pin-palette` override that
 /// fixes either the season or the time of day.
-pub fn resolve_with_pin(
-    mut season: Season,
-    mut time: TimeOfDay,
-    pin: Option<PalettePin>,
-) -> Palette {
+pub fn resolve_with_pin(mut season: Season, mut time: TimeOfDay, pin: Option<Pin>) -> Palette {
     if let Some(pin) = pin {
         apply_pin(&mut season, &mut time, pin);
     }
     palette(season, time)
 }
 
-fn apply_pin(season: &mut Season, time: &mut TimeOfDay, pin: PalettePin) {
+fn apply_pin(season: &mut Season, time: &mut TimeOfDay, pin: Pin) {
     match pin {
-        PalettePin::Spring => *season = Season::Spring,
-        PalettePin::Summer => *season = Season::Summer,
-        PalettePin::Autumn => *season = Season::Autumn,
-        PalettePin::Winter => *season = Season::Winter,
-        PalettePin::Dawn => *time = TimeOfDay::Dawn,
-        PalettePin::Day => *time = TimeOfDay::Day,
-        PalettePin::Dusk => *time = TimeOfDay::Dusk,
-        PalettePin::Night => *time = TimeOfDay::Night,
+        Pin::Spring => *season = Season::Spring,
+        Pin::Summer => *season = Season::Summer,
+        Pin::Autumn => *season = Season::Autumn,
+        Pin::Winter => *season = Season::Winter,
+        Pin::Dawn => *time = TimeOfDay::Dawn,
+        Pin::Day => *time = TimeOfDay::Day,
+        Pin::Dusk => *time = TimeOfDay::Dusk,
+        Pin::Night => *time = TimeOfDay::Night,
     }
 }
 

@@ -841,6 +841,7 @@ dependencies = [
  "idna_adapter",
  "indexmap",
  "libc",
+ "meditate-core",
  "serde",
  "serde_json",
  "symphonia",
@@ -848,6 +849,10 @@ dependencies = [
  "toml",
  "ureq",
 ]
+
+[[package]]
+name = "meditate-core"
+version = "0.2.1"
 
 [[package]]
 name = "memchr"

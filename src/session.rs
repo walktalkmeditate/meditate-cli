@@ -410,7 +410,7 @@ impl Session {
         let palette = palette::resolve_with_pin(
             season_for_month(month),
             time_for_hour(hour),
-            cli.pin_palette,
+            cli.pin_palette.map(Into::into),
         );
         let pattern_name =
             crate::resolve_start_pattern(cli.pattern.map(|p| p.as_str()), config, state)

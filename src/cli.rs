@@ -83,6 +83,24 @@ pub enum PalettePin {
     Night,
 }
 
+/// Bridge the clap-facing flag to the core's clap-free palette override, so the
+/// pure palette logic stays dependency-free.
+impl From<PalettePin> for meditate_core::palette::Pin {
+    fn from(pin: PalettePin) -> Self {
+        use meditate_core::palette::Pin;
+        match pin {
+            PalettePin::Spring => Pin::Spring,
+            PalettePin::Summer => Pin::Summer,
+            PalettePin::Autumn => Pin::Autumn,
+            PalettePin::Winter => Pin::Winter,
+            PalettePin::Dawn => Pin::Dawn,
+            PalettePin::Day => Pin::Day,
+            PalettePin::Dusk => Pin::Dusk,
+            PalettePin::Night => Pin::Night,
+        }
+    }
+}
+
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Download optional sound packs (soundscapes, voices, bells).

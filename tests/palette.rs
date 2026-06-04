@@ -1,6 +1,5 @@
-use meditate::cli::PalettePin;
 use meditate::palette::{
-    palette, resolve_with_pin, season_for_month, time_for_hour, Season, TimeOfDay,
+    palette, resolve_with_pin, season_for_month, time_for_hour, Pin, Season, TimeOfDay,
 };
 
 #[test]
@@ -35,13 +34,13 @@ fn seasons_and_times_produce_distinct_palettes() {
 
 #[test]
 fn pin_overrides_season() {
-    let pinned = resolve_with_pin(Season::Winter, TimeOfDay::Night, Some(PalettePin::Spring));
+    let pinned = resolve_with_pin(Season::Winter, TimeOfDay::Night, Some(Pin::Spring));
     assert_eq!(pinned, palette(Season::Spring, TimeOfDay::Night));
 }
 
 #[test]
 fn pin_overrides_time_of_day() {
-    let pinned = resolve_with_pin(Season::Autumn, TimeOfDay::Night, Some(PalettePin::Day));
+    let pinned = resolve_with_pin(Season::Autumn, TimeOfDay::Night, Some(Pin::Day));
     assert_eq!(pinned, palette(Season::Autumn, TimeOfDay::Day));
 }
 

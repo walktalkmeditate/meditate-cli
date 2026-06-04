@@ -1,5 +1,5 @@
 use super::{to_ansi256, Renderer, Rgb, Surface, RESET};
-use crate::term::ColorDepth;
+use crate::caps::ColorDepth;
 
 /// Renders the surface as truecolor (or 256-color) half-block cells: each cell
 /// is `▀`, with the foreground painting the top pixel and the background the
