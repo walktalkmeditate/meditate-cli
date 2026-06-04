@@ -203,6 +203,7 @@ async function boot(): Promise<void> {
 
   // Touch: a chip row so a session is completable without a keyboard. The set
   // grows as later units add sound / voice / bell / theme / share.
+  let chipBar: HTMLElement | null = null;
   if (isTouch()) {
     const chips = [
       { label: 'pattern', command: 'next' },
@@ -213,19 +214,22 @@ async function boot(): Promise<void> {
       { label: 'help', command: 'help' },
       { label: 'install', command: 'install' },
     ];
-    document.body.appendChild(
-      createChipBar(chips, (cmd) => {
-        interact();
-        if (paging) dismissPage();
-        dispatch(cmd);
-      }),
-    );
+    chipBar = createChipBar(chips, (cmd) => {
+      interact();
+      if (paging) dismissPage();
+      dispatch(cmd);
+    });
+    document.body.appendChild(chipBar);
   }
 
   const refit = (): void => {
+    // Keep the terminal (and its bottom prompt row) above the chip bar so the
+    // chips never cover what you're typing.
+    screen.style.bottom = chipBar ? `${chipBar.offsetHeight}px` : '';
     fit.fit();
     smoothOrb.resize();
   };
+  refit();
   window.addEventListener('resize', refit);
   window.visualViewport?.addEventListener('resize', refit);
 
