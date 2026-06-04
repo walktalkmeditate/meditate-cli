@@ -83,6 +83,7 @@ export class SmoothOrb {
   start(session: Session, visible: () => boolean): void {
     const frame = (t: number): void => {
       this.raf = requestAnimationFrame(frame);
+      if (document.hidden) return; // no canvas work for a hidden tab
       const dt = this.lastT < 0 ? 16 : Math.min(64, t - this.lastT);
       this.lastT = t;
       this.clock += dt;
@@ -139,6 +140,7 @@ export class SmoothOrb {
     const scale = session.scale();
     const glow = session.glow();
     const pal = session.palette();
+    if (pal.length < 9) return; // core/edge/ripple RGB; bail rather than paint NaN colors
     const moss = (a: number): string => `rgba(${pal[0]}, ${pal[1]}, ${pal[2]}, ${a})`;
 
     const cx = this.w / 2;

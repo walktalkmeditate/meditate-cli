@@ -106,11 +106,12 @@ export function runCommand(line: string, registry: Registry, ctx: CommandContext
       ctx.status('already breathing — type a pattern name, or `help`');
       return;
     }
-    if (isPattern(args[0])) {
-      ctx.setPattern(args[0]);
+    const candidate = args[0].toLowerCase();
+    if (isPattern(candidate)) {
+      ctx.setPattern(candidate);
       return;
     }
-    ctx.status(`unknown pattern '${args[0]}'`);
+    ctx.status(`unknown pattern '${candidate}'`);
     return;
   }
 

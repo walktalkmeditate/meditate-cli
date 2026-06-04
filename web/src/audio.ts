@@ -98,11 +98,17 @@ export class AudioEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private readonly buffers = new Map<string, AudioBuffer>();
-  private audioManifest: AudioManifest | null = null;
-  private voiceManifest: VoiceManifest | null = null;
+  // Manifest fetches are deduped by caching the in-flight promise, so concurrent
+  // callers (e.g. list + play at startup) share one request.
+  private audioManifest: Promise<AudioManifest | null> | null = null;
+  private voiceManifest: Promise<VoiceManifest | null> | null = null;
   private soundscape: Soundscape | null = null;
-  private voiceTimers: number[] = [];
+  // Generation tokens serialize concurrent async starts: a slower-resolving
+  // older request bails instead of clobbering the newest one.
+  private soundGen = 0;
+  private voiceGen = 0;
   private voiceActive = false;
+  private voiceTimers: number[] = [];
   private muteHinted = false;
 
   constructor(
@@ -112,6 +118,7 @@ export class AudioEngine {
 
   private context(): AudioContext {
     if (!this.ctx) {
+      // webkitAudioContext: Safari's vendor prefix, absent from lib.dom types.
       const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new Ctor();
       this.master = this.ctx.createGain();
@@ -140,9 +147,11 @@ export class AudioEngine {
   }
 
   async playSoundscape(id: string): Promise<void> {
+    const gen = ++this.soundGen;
     const ctx = this.context();
     const buffer = await this.loadOrNotice(audioUrl('soundscape', id));
-    if (!buffer) return;
+    // A newer request started while this one was fetching — let it win.
+    if (!buffer || gen !== this.soundGen) return;
 
     const fade = ctx.createGain();
     const duck = ctx.createGain();
@@ -176,6 +185,13 @@ export class AudioEngine {
     prev.fade.gain.cancelScheduledValues(now);
     prev.fade.gain.setValueAtTime(prev.fade.gain.value, now);
     prev.fade.gain.setValueCurveAtTime(equalPowerCurve('out'), now, CROSSFADE_SECS);
+    // Release the node graph once the fade-out finishes, so a long session of
+    // soundscape switches doesn't accumulate dead-but-connected nodes.
+    prev.source.onended = () => {
+      prev.source.disconnect();
+      prev.fade.disconnect();
+      prev.duck.disconnect();
+    };
     try {
       prev.source.stop(now + CROSSFADE_SECS + 0.1);
     } catch {
@@ -204,6 +220,7 @@ export class AudioEngine {
       return;
     }
     this.stopVoice();
+    const gen = ++this.voiceGen;
     this.voiceActive = true;
     this.duckTo(DUCK_LEVEL);
 
@@ -212,11 +229,13 @@ export class AudioEngine {
       const prompt = prompts[index % prompts.length];
       index++;
       const buffer = await this.loadOrNotice(voiceUrl(packId, prompt.id));
-      if (!buffer || !this.voiceActive) return;
+      // Bail if stopVoice ran or a newer playVoice superseded this chain.
+      if (!buffer || gen !== this.voiceGen) return;
       const ctx = this.context();
       const src = ctx.createBufferSource();
       src.buffer = buffer;
       src.connect(this.master!);
+      src.onended = () => src.disconnect();
       src.start();
       const gapMs = (buffer.duration + 18) * 1000;
       this.voiceTimers.push(window.setTimeout(() => void playNext(), gapMs));
@@ -225,6 +244,7 @@ export class AudioEngine {
   }
 
   stopVoice(): void {
+    this.voiceGen++;
     this.voiceActive = false;
     this.voiceTimers.forEach((t) => window.clearTimeout(t));
     this.voiceTimers = [];
@@ -251,6 +271,7 @@ export class AudioEngine {
         const src = ctx.createBufferSource();
         src.buffer = buffer;
         src.connect(this.master!);
+        src.onended = () => src.disconnect();
         src.start();
         return;
       }
@@ -266,18 +287,23 @@ export class AudioEngine {
     const now = ctx.currentTime;
     const env = ctx.createGain();
     env.connect(this.master!);
-    // exp(-3t) over BELL_SECS, scaled by BELL_GAIN.
     env.gain.setValueAtTime(BELL_GAIN, now);
     env.gain.exponentialRampToValueAtTime(BELL_GAIN * Math.exp(-3 * BELL_SECS), now + BELL_SECS);
-    for (const [mult, amp] of BELL_PARTIALS) {
+    BELL_PARTIALS.forEach(([mult, amp], i) => {
       const osc = ctx.createOscillator();
       osc.frequency.value = BELL_BASE_HZ * mult;
       const g = ctx.createGain();
       g.gain.value = amp;
       osc.connect(g).connect(env);
+      const isLast = i === BELL_PARTIALS.length - 1;
+      osc.onended = () => {
+        osc.disconnect();
+        g.disconnect();
+        if (isLast) env.disconnect();
+      };
       osc.start(now);
       osc.stop(now + BELL_SECS);
-    }
+    });
     this.maybeHintMute();
   }
 
@@ -299,23 +325,34 @@ export class AudioEngine {
     }
   }
 
-  private async audioManifestOrNull(): Promise<AudioManifest | null> {
-    if (this.audioManifest) return this.audioManifest;
-    this.audioManifest = await this.fetchManifest<AudioManifest>(`${AUDIO_BASE}/manifest.json`);
+  private audioManifestOrNull(): Promise<AudioManifest | null> {
+    if (!this.audioManifest) {
+      this.audioManifest = this.fetchManifest(`${AUDIO_BASE}/manifest.json`, (v) => 'assets' in v);
+    }
     return this.audioManifest;
   }
 
-  private async voiceManifestOrNull(): Promise<VoiceManifest | null> {
-    if (this.voiceManifest) return this.voiceManifest;
-    this.voiceManifest = await this.fetchManifest<VoiceManifest>(`${VOICE_BASE}/manifest.json`);
+  private voiceManifestOrNull(): Promise<VoiceManifest | null> {
+    if (!this.voiceManifest) {
+      this.voiceManifest = this.fetchManifest(`${VOICE_BASE}/manifest.json`, (v) => 'packs' in v);
+    }
     return this.voiceManifest;
   }
 
-  private async fetchManifest<T>(url: string): Promise<T | null> {
+  /** Fetch + JSON-parse a manifest, validated by a runtime shape guard (so a
+   *  surprise response body can't masquerade as a typed manifest). */
+  private async fetchManifest<T>(
+    url: string,
+    looksValid: (v: Record<string, unknown>) => boolean,
+  ): Promise<T | null> {
     try {
       const res = await fetch(url, { mode: 'cors' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return (await res.json()) as T;
+      const parsed: unknown = await res.json();
+      if (typeof parsed !== 'object' || parsed === null || !looksValid(parsed as Record<string, unknown>)) {
+        throw new Error('unexpected manifest shape');
+      }
+      return parsed as T;
     } catch {
       this.notice('sound packs unavailable right now');
       return null;

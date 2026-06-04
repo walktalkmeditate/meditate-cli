@@ -31,6 +31,16 @@ describe('Repl line editing', () => {
     expect(repl.input).toBe('');
   });
 
+  it('strips control bytes from a paste and keeps the printable remainder', () => {
+    // #given a paste with an embedded tab and a paste that starts with a control byte
+    const repl = new Repl();
+    // #when handled as single onData chunks (xterm delivers a paste as one chunk)
+    repl.handle('a\tb');
+    repl.handle('\x01cd');
+    // #then only the printable characters land in the buffer
+    expect(repl.input).toBe('abcd');
+  });
+
   it('walks history with the arrow keys', () => {
     const repl = new Repl();
     type(repl, 'box');

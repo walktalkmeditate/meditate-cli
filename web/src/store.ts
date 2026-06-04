@@ -180,6 +180,7 @@ export class Persistence {
         prefs: parsed.prefs ?? {},
         completions: parsed.completions ?? {},
         totalSeconds: typeof parsed.totalSeconds === 'number' ? parsed.totalSeconds : 0,
+        lastVisit: typeof parsed.lastVisit === 'number' ? parsed.lastVisit : undefined,
       };
       this.save();
       return true;

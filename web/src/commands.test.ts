@@ -52,7 +52,6 @@ function makeContext() {
     setGraphics: vi.fn(),
     setSound: vi.fn(),
     shareLink: () => ({ pattern: current }),
-    commandNames: () => [...registry.map.keys()],
     visibleCommands: () => registry.list.filter((c) => !c.hidden),
   };
   return { ctx, registry, calls, session };
@@ -72,6 +71,12 @@ describe('runCommand dispatch', () => {
 
     runCommand('meditate sideways', registry, ctx);
     expect(calls.status).toHaveBeenCalledWith(expect.stringContaining('unknown pattern'));
+  });
+
+  it('accepts a capitalized `meditate <Pattern>` (case-insensitive like the bare form)', () => {
+    const { ctx, registry, calls } = makeContext();
+    runCommand('meditate Box', registry, ctx);
+    expect(calls.setPattern).toHaveBeenCalledWith('box');
   });
 
   it('toggles pause and reports an unknown command', () => {

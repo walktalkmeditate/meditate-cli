@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { deriveStats, ordinalFromKey, localDayKey } from './store';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { deriveStats, ordinalFromKey, localDayKey, Persistence } from './store';
 
 const ord = (key: string): number => ordinalFromKey(key);
 
@@ -46,5 +46,32 @@ describe('local day keys', () => {
 
   it('ordinals are consecutive across a month boundary', () => {
     expect(ordinalFromKey('2026-02-01') - ordinalFromKey('2026-01-31')).toBe(1);
+  });
+});
+
+describe('Persistence import/export', () => {
+  beforeEach(() => {
+    const mem = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => mem.get(k) ?? null,
+      setItem: (k: string, v: string) => mem.set(k, v),
+      removeItem: (k: string) => mem.delete(k),
+    });
+  });
+
+  it('round-trips lastVisit through export then import', () => {
+    // #given a store that recorded a visit
+    const a = new Persistence();
+    a.markVisit(1234);
+    const json = a.exportJson();
+    // #when imported into a fresh store
+    const b = new Persistence();
+    // #then the import succeeds and lastVisit survives (not reset to "first breath")
+    expect(b.importJson(json)).toBe(true);
+    expect(b.lastVisit()).toBe(1234);
+  });
+
+  it('returns false on malformed JSON', () => {
+    expect(new Persistence().importJson('{ not json')).toBe(false);
   });
 });

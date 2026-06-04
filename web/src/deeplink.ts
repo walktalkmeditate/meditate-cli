@@ -12,6 +12,18 @@ export interface DeepLink {
   invalidPattern?: string;
 }
 
+/** A safe sound/asset id: the hash is attacker-controlled (a one-click link),
+ *  so anything not in the asset alphabet is rejected before it can reach the
+ *  terminal as escape bytes. Real ids are `[a-z0-9-]` (see src/pack safe_component). */
+const SAFE_ID = /^[a-z0-9-]{1,32}$/;
+
+/** For the echoed "unknown pattern '…'" message: drop control/ESC bytes and cap
+ *  length, so a junk `p=` value can't drive the terminal. */
+function neutralize(value: string): string {
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/[\x00-\x1f\x7f-\x9f]/g, '').slice(0, 32);
+}
+
 export function parseHash(hash: string): DeepLink {
   const out: DeepLink = {};
   const params = new URLSearchParams(hash.replace(/^#/, ''));
@@ -19,10 +31,10 @@ export function parseHash(hash: string): DeepLink {
   const p = params.get('p');
   if (p) {
     if (isPattern(p)) out.pattern = p;
-    else out.invalidPattern = p;
+    else out.invalidPattern = neutralize(p);
   }
   const snd = params.get('snd');
-  if (snd) out.sound = snd;
+  if (snd && SAFE_ID.test(snd)) out.sound = snd;
   return out;
 }
 
