@@ -1,20 +1,22 @@
 pub mod audio;
-pub mod breath;
 pub mod cli;
 pub mod config;
 pub mod door;
 pub mod integration;
 pub mod keymap;
 pub mod pack;
-pub mod palette;
 pub mod paths;
 pub mod render;
 pub mod session;
 pub mod state;
 pub mod streak;
 pub mod term;
-pub mod title;
 pub mod wait;
+
+// The pure engine modules live in meditate-core; re-export them under their
+// original paths so `crate::breath`, `crate::palette`, `crate::title` (and the
+// integration tests' `meditate::breath::*` etc.) resolve unchanged.
+pub use meditate_core::{breath, palette, title};
 
 use cli::{Cli, Command, ConfigAction, DownloadArgs, IntegrationAction, StreakAction};
 use config::Config;

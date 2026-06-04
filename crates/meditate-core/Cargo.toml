@@ -1,0 +1,12 @@
+[package]
+name = "meditate-core"
+version = "0.2.1"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+description = "Pure, I/O-free breath engine and orb renderers shared by the meditate CLI and its WASM web build."
+repository = "https://github.com/walktalkmeditate/meditate-cli"
+
+# Intentionally dependency-free: this crate must compile to wasm32-unknown-unknown,
+# so it carries no std::env, no clock, and no I/O. Callers inject time and config.
+[dependencies]

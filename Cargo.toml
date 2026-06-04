@@ -1,3 +1,11 @@
+# The root stays the `meditate` CLI package and is also the workspace root, so
+# the existing release pipeline, install scripts, and Homebrew tap are unchanged.
+# `meditate-core` holds the pure, wasm-buildable engine; `meditate-wasm` is the
+# browser façade. Profiles are read only from this root, so the wasm crate sets
+# panic=abort via RUSTFLAGS at build time, not a member [profile].
+[workspace]
+members = ["crates/meditate-core"]
+
 [package]
 name = "meditate"
 version = "0.2.1"
@@ -26,6 +34,8 @@ name = "meditate"
 path = "src/lib.rs"
 
 [dependencies]
+# The pure breath/orb/palette/title engine, shared with the WASM web build.
+meditate-core = { path = "crates/meditate-core" }
 # Several deps pin to MSRV-safe (Rust 1.82) versions: newer releases of clap,
 # indexmap, and winnow require the unstable edition2024 Cargo feature.
 clap = { version = "=4.5.20", features = ["derive"] }
