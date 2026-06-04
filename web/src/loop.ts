@@ -43,6 +43,9 @@ export interface LoopOptions {
   reduceMotion: boolean;
   /** A dim status/hint line for the bottom row, or `null` for none. */
   hint: () => string | null;
+  /** Called after each drawn frame (the session's accessors are current) —
+   *  used to drive the breathing favicon and the tab title. */
+  afterDraw?: () => void;
 }
 
 export interface LoopHandle {
@@ -78,6 +81,7 @@ export function startBreathing(opts: LoopOptions): LoopHandle {
       hint !== null ? `\r\n\x1b[2m${centerLine(hint, cols)}\x1b[0m` : '';
 
     opts.term.write(frameSequence(orb + tail));
+    opts.afterDraw?.();
   };
 
   raf = requestAnimationFrame(frame);

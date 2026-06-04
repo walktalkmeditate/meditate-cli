@@ -2,6 +2,7 @@ import './style.css';
 import init, { Session } from './wasm/meditate_wasm.js';
 import { createTerminal } from './terminal';
 import { startBreathing } from './loop';
+import { BreathingFavicon } from './favicon';
 
 /** Fade out and remove the zero-JS loading placeholder once the orb is live. */
 function dismissLoading(): void {
@@ -23,15 +24,23 @@ async function boot(): Promise<void> {
   if (!screen) throw new Error('missing #screen mount');
   const { term, fit } = createTerminal(screen);
 
-  // The breathing browser tab: xterm parses the OSC-0 bytes the wasm emits.
-  term.onTitleChange((title) => {
-    document.title = title || 'meditate';
-  });
-
   // The core has no clock — inject the browser's month/hour so the palette
-  // shifts with season and time of day.
+  // shifts with season and time of day (R9).
   const now = new Date();
   const session = new Session('calm', now.getMonth() + 1, now.getHours());
+
+  // The breathing browser tab lives in the *icon*: a small canvas orb that
+  // pulses with the breath. The title stays a calm phase word (no block bar).
+  const favicon = new BreathingFavicon();
+  let lastPhase = '';
+  const reflectBreath = () => {
+    favicon.update(session.scale(), session.glow(), session.palette());
+    const phase = session.phaseLabel();
+    if (phase !== lastPhase) {
+      document.title = `meditate · ${phase}`;
+      lastPhase = phase;
+    }
+  };
 
   dismissLoading();
 
@@ -49,7 +58,7 @@ async function boot(): Promise<void> {
   window.addEventListener('resize', refit);
   window.visualViewport?.addEventListener('resize', refit);
 
-  startBreathing({ term, fit, session, reduceMotion, hint });
+  startBreathing({ term, fit, session, reduceMotion, hint, afterDraw: reflectBreath });
 }
 
 boot().catch((err) => {
