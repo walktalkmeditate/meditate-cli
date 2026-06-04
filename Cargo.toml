@@ -16,13 +16,18 @@ description = "A terminal breathing companion — paced breathing, soundscapes, 
 repository = "https://github.com/walktalkmeditate/meditate-cli"
 keywords = ["meditation", "breathing", "tui", "cli", "wellness"]
 categories = ["command-line-utilities"]
+# Keep the published crate lean: the demo media, web app, sibling workspace
+# crates, and CI config live in the repo but don't belong in the tarball.
+exclude = ["/crates", "/web", "/demo", "/docs", "/tests", "/.github", "/.claude", "/install.sh", "/install.ps1"]
 
 [features]
-default = []
-# Real audio output via cpal + decoding via symphonia. Off by default so the
-# core builds and tests headlessly; enable on a machine with an audio device.
+# On by default so `cargo install meditate` ships with sound and pack downloads.
+# Disable with `--no-default-features`. Building audio on Linux needs the ALSA
+# dev headers (e.g. libasound2-dev); macOS needs nothing extra.
+default = ["audio", "download"]
+# Real audio output via cpal + decoding via symphonia.
 audio = ["dep:cpal", "dep:coreaudio-sys", "dep:symphonia"]
-# Network pack downloads via ureq. Off by default; release builds enable it.
+# Network pack downloads via ureq.
 download = ["dep:ureq", "dep:idna_adapter"]
 
 [[bin]]
@@ -35,7 +40,8 @@ path = "src/lib.rs"
 
 [dependencies]
 # The pure breath/orb/palette/title engine, shared with the WASM web build.
-meditate-core = { path = "crates/meditate-core" }
+# The version is required to publish to crates.io; the path is used locally.
+meditate-core = { path = "crates/meditate-core", version = "0.2.1" }
 # Several deps pin to MSRV-safe (Rust 1.82) versions: newer releases of clap,
 # indexmap, and winnow require the unstable edition2024 Cargo feature.
 clap = { version = "=4.5.20", features = ["derive"] }

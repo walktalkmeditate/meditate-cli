@@ -16,6 +16,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.82.0
         with:
           components: rustfmt, clippy
+      - name: Install Linux audio deps (cpal/ALSA)
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --locked
@@ -40,4 +42,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux audio deps (cpal/ALSA)
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - run: cargo test --workspace --locked
