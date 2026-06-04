@@ -31,6 +31,7 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - run: cargo build --locked -p meditate-core --target wasm32-unknown-unknown
+      - run: RUSTFLAGS="-C panic=abort" cargo build --locked --release -p meditate-wasm --target wasm32-unknown-unknown
 
   # Catch ecosystem/toolchain drift on current stable. Tests only — no
   # `-D warnings`, so new advisory lints never fail the build.

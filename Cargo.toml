@@ -4,7 +4,7 @@
 # browser façade. Profiles are read only from this root, so the wasm crate sets
 # panic=abort via RUSTFLAGS at build time, not a member [profile].
 [workspace]
-members = ["crates/meditate-core"]
+members = ["crates/meditate-core", "crates/meditate-wasm"]
 
 [package]
 name = "meditate"
