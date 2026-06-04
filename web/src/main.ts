@@ -83,6 +83,7 @@ async function boot(): Promise<void> {
   // Audio loads live from the CDN; failures route to the status line and fall
   // back to the synth bell (see audio.ts).
   const audio = new AudioEngine(setStatus, isTouch());
+  if (prefs.bell) audio.setBell(prefs.bell);
 
   const registry = buildRegistry([
     soundCommand,
@@ -161,6 +162,7 @@ async function boot(): Promise<void> {
     audio
       .unlock()
       .then(() => {
+        void audio.ring(); // a soft opening chime as the session begins
         if (pendingSound) {
           const id = pendingSound;
           ctx.setSound(id);
@@ -236,6 +238,10 @@ async function boot(): Promise<void> {
   // past midnight still earns the new day.
   let countedDay = localDayKey();
   let breathedToday = store.hasToday() ? MIN_SESSION_SECS : 0;
+  // A bell punctuates the session at these minute marks (mirrors the CLI).
+  const milestonesSecs = [300, 600, 900, 1200, 1800];
+  let sessionSecs = 0;
+  let milestoneIdx = 0;
   window.setInterval(() => {
     if (paging || session.isPaused() || document.visibilityState !== 'visible') return;
     const today = localDayKey();
@@ -246,6 +252,12 @@ async function boot(): Promise<void> {
     breathedToday += 1;
     store.addSeconds(1, performance.now());
     if (breathedToday >= MIN_SESSION_SECS && !store.hasToday()) store.markToday();
+
+    sessionSecs += 1;
+    if (milestoneIdx < milestonesSecs.length && sessionSecs >= milestonesSecs[milestoneIdx]) {
+      milestoneIdx += 1;
+      void audio.ring();
+    }
   }, 1000);
 
   if (hasConfig(link)) {

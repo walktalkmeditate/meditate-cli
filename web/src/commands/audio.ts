@@ -57,9 +57,29 @@ export const voiceCommand: Command = {
 
 export const bellCommand: Command = {
   name: 'bell',
-  summary: 'ring a bell (bell <name> for a downloaded one)',
+  summary: 'choose / ring a bell (bell <name>, or bell to list)',
   run: async (args, ctx) => {
-    await ctx.audio.ring(args[0]?.toLowerCase());
-    ctx.status('∿ bell');
+    const arg = args[0]?.toLowerCase();
+    if (!arg) {
+      const list = await ctx.audio.listBells();
+      if (list.length === 0) {
+        await ctx.audio.ring();
+        ctx.status('∿ bell');
+        return;
+      }
+      ctx.page(listPage('bells', list.map((a) => a.id), 'ring one with: bell <name>'));
+      return;
+    }
+    if (arg === 'synth') {
+      ctx.audio.setBell(null);
+      ctx.store.setPref('bell', undefined);
+      await ctx.audio.ring();
+      ctx.status('∿ synth bell');
+      return;
+    }
+    ctx.audio.setBell(arg);
+    ctx.store.setPref('bell', arg);
+    ctx.status(`∿ ${arg}`);
+    await ctx.audio.ring();
   },
 };

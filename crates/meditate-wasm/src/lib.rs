@@ -46,7 +46,11 @@ impl Session {
         let last_state = breath.tick(Duration::ZERO);
         Session {
             breath,
-            renderer: CellGradient::new(meditate_core::caps::ColorDepth::Truecolor),
+            // Quantize the truecolor gradient: a full-screen, per-cell-unique
+            // gradient overflows xterm's WebGL glyph atlas (scattered speckles).
+            // A coarse step collapses the distinct fg/bg pairs without visible
+            // banding (the half-block's fg≠bg already dithers).
+            renderer: CellGradient::quantized(meditate_core::caps::ColorDepth::Truecolor, 4),
             palette,
             last_state,
             last_title: String::new(),

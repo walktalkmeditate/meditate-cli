@@ -6,23 +6,48 @@ use crate::caps::ColorDepth;
 /// bottom pixel, so one character row shows two pixel rows.
 pub struct CellGradient {
     color: ColorDepth,
+    quantize: u8,
 }
 
 impl CellGradient {
     pub fn new(color: ColorDepth) -> CellGradient {
-        CellGradient { color }
+        CellGradient { color, quantize: 1 }
+    }
+
+    /// Snap truecolor channels to a `step`, shrinking the number of distinct
+    /// fg/bg pairs in a smooth gradient. The native CLI uses `new` (step 1, no
+    /// quantization); the web uses this to relieve xterm's WebGL glyph-atlas,
+    /// which overflows on a full-screen, per-cell-unique truecolor gradient.
+    pub fn quantized(color: ColorDepth, step: u8) -> CellGradient {
+        CellGradient {
+            color,
+            quantize: step.max(1),
+        }
+    }
+
+    /// Round a channel to the nearest multiple of the quantization step.
+    fn q(&self, v: u8) -> u8 {
+        let step = self.quantize as u16;
+        if step <= 1 {
+            return v;
+        }
+        (((v as u16 + step / 2) / step) * step).min(255) as u8
     }
 
     fn fg(&self, c: Rgb) -> String {
         match self.color {
-            ColorDepth::Truecolor => format!("\x1b[38;2;{};{};{}m", c.r, c.g, c.b),
+            ColorDepth::Truecolor => {
+                format!("\x1b[38;2;{};{};{}m", self.q(c.r), self.q(c.g), self.q(c.b))
+            }
             _ => format!("\x1b[38;5;{}m", to_ansi256(c)),
         }
     }
 
     fn bg(&self, c: Rgb) -> String {
         match self.color {
-            ColorDepth::Truecolor => format!("\x1b[48;2;{};{};{}m", c.r, c.g, c.b),
+            ColorDepth::Truecolor => {
+                format!("\x1b[48;2;{};{};{}m", self.q(c.r), self.q(c.g), self.q(c.b))
+            }
             _ => format!("\x1b[48;5;{}m", to_ansi256(c)),
         }
     }

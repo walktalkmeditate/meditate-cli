@@ -25,6 +25,11 @@ const BELL_PARTIALS: ReadonlyArray<readonly [number, number]> = [
 const BELL_SECS = 1.6;
 const BELL_GAIN = 0.18;
 
+// Silence between meditation voice prompts. Generous, so the guide punctuates
+// the breathing rather than talking over it (the CLI schedules against the
+// breath; the web uses a calm fixed cadence).
+const VOICE_GAP_SECS = 60;
+
 export interface AudioAsset {
   id: string;
   type?: string;
@@ -109,6 +114,7 @@ export class AudioEngine {
   private voiceGen = 0;
   private voiceActive = false;
   private voiceTimers: number[] = [];
+  private currentBell: string | null = null;
   private muteHinted = false;
 
   constructor(
@@ -237,7 +243,7 @@ export class AudioEngine {
       src.connect(this.master!);
       src.onended = () => src.disconnect();
       src.start();
-      const gapMs = (buffer.duration + 18) * 1000;
+      const gapMs = (buffer.duration + VOICE_GAP_SECS) * 1000;
       this.voiceTimers.push(window.setTimeout(() => void playNext(), gapMs));
     };
     void playNext();
@@ -262,10 +268,21 @@ export class AudioEngine {
 
   // ── bells ───────────────────────────────────────────────────────────────────
 
-  /** Ring a downloaded bell, or the synth bell when none/unavailable. */
-  async ring(bellId?: string): Promise<void> {
-    if (bellId) {
-      const buffer = await this.loadOrNotice(audioUrl('bell', bellId));
+  async listBells(): Promise<AudioAsset[]> {
+    const m = await this.audioManifestOrNull();
+    return m ? assetsOfType(m, 'bell') : [];
+  }
+
+  /** Select the bell that `ring()` (opening + milestone chimes) will use; `null`
+   *  falls back to the synth bell. */
+  setBell(id: string | null): void {
+    this.currentBell = id;
+  }
+
+  /** Ring the selected bell, or the synth bell when none/unavailable. */
+  async ring(): Promise<void> {
+    if (this.currentBell) {
+      const buffer = await this.loadOrNotice(audioUrl('bell', this.currentBell));
       if (buffer) {
         const ctx = this.context();
         const src = ctx.createBufferSource();

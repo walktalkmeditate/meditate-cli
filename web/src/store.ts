@@ -14,6 +14,7 @@ export const MIN_SESSION_SECS = 60;
 export interface Prefs {
   pattern?: string;
   sound?: string;
+  bell?: string;
   graphics?: boolean;
 }
 
