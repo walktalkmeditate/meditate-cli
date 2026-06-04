@@ -9,6 +9,8 @@ import { moss, dim } from './ansi';
 import { renderMotd } from './motd';
 import { buildRegistry, runCommand, patternStatus } from './commands';
 import type { CommandContext } from './commands';
+import { soundCommand, voiceCommand, bellCommand } from './commands/audio';
+import { AudioEngine } from './audio';
 import { isTouch, createChipBar } from './mobile';
 
 const VERSION = '0.2.1';
@@ -50,9 +52,6 @@ async function boot(): Promise<void> {
   };
 
   // ── REPL + command surface ─────────────────────────────────────────────────
-  const registry = buildRegistry();
-  const repl = new Repl(() => [...PATTERNS, ...registry.map.keys()]);
-
   let begun = false;
   let paging = false;
   let pageTimer = 0;
@@ -63,6 +62,13 @@ async function boot(): Promise<void> {
     statusText = line;
     statusUntil = line ? performance.now() + 2600 : 0;
   };
+
+  // Audio loads live from the CDN; failures route to the status line and fall
+  // back to the synth bell (see audio.ts).
+  const audio = new AudioEngine(setStatus, isTouch());
+
+  const registry = buildRegistry([soundCommand, voiceCommand, bellCommand]);
+  const repl = new Repl(() => [...PATTERNS, ...registry.map.keys()]);
 
   const showPage = (text: string, autoDismissMs = 0): void => {
     paging = true;
@@ -85,6 +91,7 @@ async function boot(): Promise<void> {
   const ctx: CommandContext = {
     session,
     term,
+    audio,
     version: VERSION,
     page: (text) => showPage(text),
     status: setStatus,
@@ -103,7 +110,8 @@ async function boot(): Promise<void> {
   };
 
   const interact = (): void => {
-    begun = true; // U5 will resume the AudioContext here (the unlock gesture)
+    begun = true;
+    void audio.unlock(); // the first gesture unlocks the AudioContext (iOS)
   };
 
   term.onData((data) => {
@@ -130,6 +138,8 @@ async function boot(): Promise<void> {
     const chips = [
       { label: 'pattern', command: 'next' },
       { label: 'pause', command: 'pause' },
+      { label: 'sound', command: 'sound' },
+      { label: 'bell', command: 'bell' },
       { label: 'help', command: 'help' },
       { label: 'install', command: 'install' },
     ];
