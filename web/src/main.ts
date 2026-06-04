@@ -7,7 +7,7 @@ import { SmoothOrb } from './orb-canvas';
 import { Repl } from './repl';
 import { PATTERNS } from './patterns';
 import { moss, dim } from './ansi';
-import { renderMotd } from './motd';
+import { renderBoot } from './boot';
 import { buildRegistry, runCommand, patternStatus } from './commands';
 import type { CommandContext } from './commands';
 import { soundCommand, voiceCommand, bellCommand } from './commands/audio';
@@ -41,6 +41,8 @@ async function boot(): Promise<void> {
 
   // Persistence + deep-link: precedence is deep-link > saved prefs > default.
   const store = new Persistence();
+  const lastVisit = store.lastVisit();
+  store.markVisit(Date.now());
   const link = parseHash(window.location.hash);
   const prefs = store.prefs();
 
@@ -241,8 +243,8 @@ async function boot(): Promise<void> {
       ].join('\n'),
     );
   } else {
-    // The login MOTD: a brief banner that fades to the breathing orb (or any key).
-    showPage(renderMotd(VERSION), reduceMotion ? 2500 : 4200);
+    // The login boot: a calm banner that fades to the breathing orb (or any key).
+    showPage(renderBoot(VERSION, lastVisit, Date.now()), reduceMotion ? 2200 : 4200);
   }
 }
 

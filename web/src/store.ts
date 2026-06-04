@@ -22,6 +22,7 @@ interface StoreData {
   prefs: Prefs;
   completions: Record<string, true>; // "YYYY-MM-DD" (local) -> true
   totalSeconds: number;
+  lastVisit?: number; // epoch ms of the previous visit, for the boot banner
 }
 
 export interface StreakStats {
@@ -47,6 +48,7 @@ function loadStore(): StoreData {
       prefs: parsed.prefs ?? {},
       completions: parsed.completions ?? {},
       totalSeconds: typeof parsed.totalSeconds === 'number' ? parsed.totalSeconds : 0,
+      lastVisit: typeof parsed.lastVisit === 'number' ? parsed.lastVisit : undefined,
     };
   } catch {
     return emptyStore();
@@ -152,6 +154,17 @@ export class Persistence {
 
   stats(): StreakStats {
     return deriveStats(this.completedOrdinals(), todayOrdinal(), this.data.totalSeconds);
+  }
+
+  /** The previous visit's timestamp (before this one), for the boot banner. */
+  lastVisit(): number | null {
+    return typeof this.data.lastVisit === 'number' ? this.data.lastVisit : null;
+  }
+
+  /** Stamp this visit (call once at boot, after reading lastVisit). */
+  markVisit(now: number): void {
+    this.data.lastVisit = now;
+    this.save();
   }
 
   exportJson(): string {

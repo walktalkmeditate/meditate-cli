@@ -7,8 +7,13 @@ next twenty minutes without reaching for your phone.
 [![Release](https://img.shields.io/github/v/release/walktalkmeditate/meditate-cli?color=2f9e44&label=release)](https://github.com/walktalkmeditate/meditate-cli/releases)
 [![CI](https://github.com/walktalkmeditate/meditate-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/walktalkmeditate/meditate-cli/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2f9e44.svg)](LICENSE)
+[![Try it live](https://img.shields.io/badge/%E2%96%B6%20try%20it%20live-cli.pilgrimapp.org-2f9e44)](https://cli.pilgrimapp.org)
 
 ![meditate breathing in the terminal](demo/meditate.gif)
+
+**[▶ Try it live in your browser](https://cli.pilgrimapp.org)** — the real thing
+runs as WebAssembly in a terminal on the web. No install, no account, nothing
+leaves your browser.
 
 ```
 meditate
