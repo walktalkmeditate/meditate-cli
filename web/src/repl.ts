@@ -66,12 +66,15 @@ export class Repl {
         return this.replace('', 0);
       case '\t':
         return this.complete();
-      default:
-        // A printable run (single char or a paste); ignore other escapes.
-        if (data.length > 0 && data >= ' ' && !data.startsWith('\x1b')) {
-          return this.insert(data);
-        }
-        return NO_CHANGE;
+      default: {
+        if (data.startsWith('\x1b')) return NO_CHANGE; // an unhandled escape, not text
+        // A single char or a paste: strip control bytes and insert the printable
+        // remainder (so an embedded \t or \x07 can't drive the terminal, and a
+        // paste that merely starts with a control byte isn't dropped wholesale).
+        // eslint-disable-next-line no-control-regex
+        const clean = data.replace(/[\x00-\x1f\x7f]/g, '');
+        return clean ? this.insert(clean) : NO_CHANGE;
+      }
     }
   }
 
@@ -164,8 +167,10 @@ export class Repl {
   }
 
   private complete(): KeyResult {
-    const head = this.buffer.slice(0, this.cursor);
-    // Only complete the command word (no space typed yet).
+    // Only complete the command word at end-of-line (no space, cursor at end) —
+    // completing mid-buffer would discard the text after the cursor.
+    if (this.cursor !== this.buffer.length) return NO_CHANGE;
+    const head = this.buffer;
     if (head.includes(' ')) return NO_CHANGE;
     const matches = this.completions().filter((c) => c.startsWith(head));
     if (matches.length === 0) return NO_CHANGE;

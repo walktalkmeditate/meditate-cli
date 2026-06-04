@@ -80,7 +80,7 @@ impl Session {
     /// the cursor; this returns only the frame's content.
     #[wasm_bindgen(js_name = tickFrame)]
     pub fn tick_frame(&mut self, elapsed_ms: f64, cols: u32, rows: u32) -> String {
-        let now = Duration::from_secs_f64((elapsed_ms.max(0.0)) / 1000.0);
+        let now = elapsed_to_now(elapsed_ms);
         self.last_now = now;
         let state = self.breath.tick(now);
         self.last_state = state;
@@ -117,7 +117,7 @@ impl Session {
     /// canvas.
     #[wasm_bindgen(js_name = tickSilent)]
     pub fn tick_silent(&mut self, elapsed_ms: f64) -> String {
-        let now = Duration::from_secs_f64((elapsed_ms.max(0.0)) / 1000.0);
+        let now = elapsed_to_now(elapsed_ms);
         self.last_now = now;
         self.last_state = self.breath.tick(now);
         let title = title::breath_title(self.last_state);
@@ -178,6 +178,20 @@ impl Session {
     }
 }
 
+/// Convert elapsed milliseconds to a session-clock `Duration`, clamping to a
+/// finite, non-negative range. `Duration::from_secs_f64` panics on a negative,
+/// NaN, or infinite value; a bad clock or fuzzed input must never unwind across
+/// the wasm boundary and kill the session.
+fn elapsed_to_now(elapsed_ms: f64) -> Duration {
+    let secs = elapsed_ms / 1000.0;
+    let secs = if secs.is_finite() {
+        secs.clamp(0.0, 1e9)
+    } else {
+        0.0
+    };
+    Duration::from_secs_f64(secs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,5 +242,38 @@ mod tests {
         session.set_pattern("not-a-pattern");
         let frame = session.tick_frame(100.0, 12, 6);
         assert!(!frame.is_empty());
+    }
+
+    #[test]
+    fn tick_silent_emits_title_only_on_change_and_advances_the_breath() {
+        let mut session = Session::new("box", 6, 12);
+        // First frame: the title changes from empty, so the OSC-0 sequence is emitted.
+        let first = session.tick_silent(0.0);
+        assert!(
+            first.contains("\x1b]0;"),
+            "first tick_silent should set the title"
+        );
+        // Same phase a moment later: the title is unchanged, so nothing is emitted.
+        let same = session.tick_silent(100.0);
+        assert!(same.is_empty(), "an unchanged title should emit nothing");
+        // Crossing into the hold (box = 4-4-4-4) changes the phase label → emit again.
+        let changed = session.tick_silent(5000.0);
+        assert!(
+            changed.contains("\x1b]0;"),
+            "a phase change should re-emit the title"
+        );
+        // The accessors reflect the advanced breath.
+        assert!(session.glow() >= 0.0 && session.scale() > 0.0);
+    }
+
+    #[test]
+    fn tick_tolerates_non_finite_or_negative_elapsed() {
+        let mut session = Session::new("calm", 6, 12);
+        // None of these may panic (from_secs_f64 would, unclamped).
+        let _ = session.tick_frame(f64::INFINITY, 20, 10);
+        let _ = session.tick_frame(f64::NAN, 20, 10);
+        let _ = session.tick_silent(f64::NEG_INFINITY);
+        let frame = session.tick_frame(-5.0, 20, 10);
+        assert!(!frame.is_empty(), "a clamped tick still renders");
     }
 }

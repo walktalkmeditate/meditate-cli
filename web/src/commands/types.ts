@@ -26,8 +26,6 @@ export interface CommandContext {
   setSound: (id: string | null) => void;
   /** The current session config, for building a share link. */
   shareLink: () => DeepLink;
-  /** All command names + aliases (incl. hidden), for tab-completion. */
-  commandNames: () => string[];
   /** Non-hidden commands, for `help` and `man` (kept honest as units land). */
   visibleCommands: () => Command[];
 }

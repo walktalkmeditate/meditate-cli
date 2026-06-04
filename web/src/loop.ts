@@ -26,13 +26,6 @@ export function shouldDraw(last: number, now: number, minInterval: number): bool
   return last < 0 || now - last >= minInterval;
 }
 
-/** Center a single line within `cols`, clipping if it is too wide. */
-export function centerLine(text: string, cols: number): string {
-  if (text.length >= cols) return text.slice(0, cols);
-  const pad = Math.floor((cols - text.length) / 2);
-  return ' '.repeat(pad) + text;
-}
-
 const FPS_NORMAL = 30;
 const FPS_REDUCED = 12;
 
@@ -75,6 +68,9 @@ export function startBreathing(opts: LoopOptions): LoopHandle {
 
   const frame = (t: number) => {
     raf = requestAnimationFrame(frame);
+    // Nothing to draw for a hidden tab; the breath keeps absolute time, so it
+    // resumes at the correct phase when the tab is foregrounded.
+    if (document.hidden) return;
     if (startedAt < 0) startedAt = t;
     if (opts.isPaging?.()) return;
     if (!shouldDraw(lastDraw, t, minInterval)) return;

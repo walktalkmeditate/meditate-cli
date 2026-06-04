@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { frameSequence, shouldDraw, centerLine } from './loop';
+import { frameSequence, shouldDraw } from './loop';
 
 describe('frameSequence', () => {
   it('wraps content in synchronized output and homes the cursor', () => {
@@ -35,15 +35,5 @@ describe('shouldDraw', () => {
       }
     }
     expect(drawn).toBeLessThanOrEqual(31);
-  });
-});
-
-describe('centerLine', () => {
-  it('centers a short line', () => {
-    expect(centerLine('hi', 6)).toBe('  hi');
-  });
-
-  it('clips a line wider than the terminal', () => {
-    expect(centerLine('toolong', 4)).toBe('tool');
   });
 });

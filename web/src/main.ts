@@ -13,7 +13,7 @@ import type { CommandContext } from './commands';
 import { soundCommand, voiceCommand, bellCommand } from './commands/audio';
 import { streakCommand, shareCommand, exportCommand } from './commands/streak';
 import { AudioEngine } from './audio';
-import { Persistence, MIN_SESSION_SECS } from './store';
+import { Persistence, MIN_SESSION_SECS, localDayKey } from './store';
 import { parseHash, hasConfig } from './deeplink';
 import { isTouch, createChipBar } from './mobile';
 
@@ -37,7 +37,7 @@ async function boot(): Promise<void> {
   const screen = document.getElementById('screen');
   if (!screen) throw new Error('missing #screen mount');
   const { term, fit } = createTerminal(screen);
-  term.write('\x1b[?25l'); // hide xterm's cursor — the REPL draws its own
+  term.write('\x1b[?25l'); // the REPL renders its own block cursor
 
   // Persistence + deep-link: precedence is deep-link > saved prefs > default.
   const store = new Persistence();
@@ -109,7 +109,7 @@ async function boot(): Promise<void> {
     if (!paging) return;
     paging = false;
     window.clearTimeout(pageTimer);
-    term.write('\x1b[2J\x1b[H'); // the loop resumes overdrawing from home
+    term.write('\x1b[2J\x1b[H');
   };
 
   const ctx: CommandContext = {
@@ -141,22 +141,33 @@ async function boot(): Promise<void> {
       pattern: currentPattern,
       sound: currentSound ?? undefined,
     }),
-    commandNames: () => [...registry.map.keys()],
     visibleCommands: () => registry.list.filter((c) => !c.hidden),
   };
 
   const dispatch = (line: string): void => {
-    void runCommand(line, registry, ctx);
+    Promise.resolve(runCommand(line, registry, ctx)).catch((err) => {
+      console.error(err);
+      setStatus('something went wrong');
+    });
   };
 
   const interact = (): void => {
     if (begun) return;
     begun = true;
     // The first gesture unlocks the AudioContext (iOS) and starts any sound the
-    // deep-link or saved prefs asked for (which couldn't autoplay).
-    void audio.unlock().then(() => {
-      if (pendingSound) dispatch(`sound ${pendingSound}`);
-    });
+    // deep-link or saved prefs asked for (which couldn't autoplay). Play it
+    // directly rather than re-parsing the id as a command line, so a sound id
+    // is never interpreted as command syntax.
+    audio
+      .unlock()
+      .then(() => {
+        if (pendingSound) {
+          const id = pendingSound;
+          ctx.setSound(id);
+          void audio.playSoundscape(id);
+        }
+      })
+      .catch((err) => console.error(err));
   };
 
   term.onData((data) => {
@@ -221,12 +232,20 @@ async function boot(): Promise<void> {
 
   // Earn a streak day: accrue active breathing time (visible + not paused) and
   // mark today once it crosses the minimum — mirrors src/streak.rs's threshold.
+  // The counter is tied to a day key and reset on rollover, so a tab left open
+  // past midnight still earns the new day.
+  let countedDay = localDayKey();
   let breathedToday = store.hasToday() ? MIN_SESSION_SECS : 0;
   window.setInterval(() => {
     if (paging || session.isPaused() || document.visibilityState !== 'visible') return;
+    const today = localDayKey();
+    if (today !== countedDay) {
+      countedDay = today;
+      breathedToday = store.hasToday() ? MIN_SESSION_SECS : 0;
+    }
     breathedToday += 1;
     store.addSeconds(1, performance.now());
-    if (breathedToday === MIN_SESSION_SECS) store.markToday();
+    if (breathedToday >= MIN_SESSION_SECS && !store.hasToday()) store.markToday();
   }, 1000);
 
   if (hasConfig(link)) {
