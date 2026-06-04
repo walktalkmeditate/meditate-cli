@@ -1,5 +1,5 @@
 ---
-status: active
+status: completed
 type: feat
 origin: docs/brainstorms/meditate-web-terminal-requirements.md
 created: 2026-06-03
