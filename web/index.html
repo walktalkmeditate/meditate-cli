@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>meditate</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta
+      name="description"
+      content="A terminal breathing companion. Free, no account — nothing leaves your browser."
+    />
+    <!-- Critical styles inline so the calm placeholder paints with zero JS,
+         before the bundle or any font loads. No blank white flash. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0a0c10;
+        overflow: hidden;
+        font-family: "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+        color: #6f8274;
+      }
+      #screen {
+        position: absolute;
+        inset: 0;
+      }
+      #loading {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1.1rem;
+        transition: opacity 0.5s ease;
+        pointer-events: none;
+      }
+      #loading.gone {
+        opacity: 0;
+      }
+      #loading pre {
+        margin: 0;
+        font-size: 1.4rem;
+        line-height: 1.05;
+        opacity: 0.45;
+      }
+      #loading span {
+        font-size: 0.78rem;
+        letter-spacing: 0.28em;
+        opacity: 0.55;
+        text-transform: lowercase;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="screen"></div>
+    <div id="loading" aria-hidden="true">
+      <pre> ▄███▄
+███████
+ ▀███▀ </pre>
+      <span>breathing in…</span>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
