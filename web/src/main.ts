@@ -39,6 +39,17 @@ async function boot(): Promise<void> {
   const { term, fit } = createTerminal(screen);
   term.write('\x1b[?25l'); // the REPL renders its own block cursor
 
+  // On a keyboard device, grab focus on load (no click required to type) and
+  // re-focus on any click and when the tab regains focus, so keystrokes always
+  // land in the terminal. Skipped on touch, where auto-focusing would pop the
+  // on-screen keyboard — those users drive with the chip row.
+  if (!isTouch()) {
+    const refocus = (): void => term.focus();
+    refocus();
+    document.addEventListener('pointerdown', refocus);
+    window.addEventListener('focus', refocus);
+  }
+
   // Persistence + deep-link: precedence is deep-link > saved prefs > default.
   const store = new Persistence();
   const lastVisit = store.lastVisit();
