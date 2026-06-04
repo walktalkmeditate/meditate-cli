@@ -41,8 +41,13 @@ export interface LoopOptions {
   fit: FitAddon;
   session: Session;
   reduceMotion: boolean;
-  /** A dim status/hint line for the bottom row, or `null` for none. */
-  hint: () => string | null;
+  /** The bottom row (the REPL prompt or a transient status), already styled and
+   *  left-aligned, or `null` for none. */
+  bottomLine: () => string | null;
+  /** When true, the loop holds the frame — a full-screen page (help/man) is up
+   *  and the orb should not overdraw it. The breath keeps absolute time, so it
+   *  resumes at the correct phase. */
+  isPaging?: () => boolean;
   /** Called after each drawn frame (the session's accessors are current) —
    *  used to drive the breathing favicon and the tab title. */
   afterDraw?: () => void;
@@ -67,6 +72,7 @@ export function startBreathing(opts: LoopOptions): LoopHandle {
   const frame = (t: number) => {
     raf = requestAnimationFrame(frame);
     if (startedAt < 0) startedAt = t;
+    if (opts.isPaging?.()) return;
     if (!shouldDraw(lastDraw, t, minInterval)) return;
     lastDraw = t;
 
@@ -76,9 +82,10 @@ export function startBreathing(opts: LoopOptions): LoopHandle {
     const orbRows = Math.max(1, rows - 1);
     const orb = opts.session.tickFrame(t - startedAt, cols, orbRows);
 
-    const hint = opts.hint();
-    const tail =
-      hint !== null ? `\r\n\x1b[2m${centerLine(hint, cols)}\x1b[0m` : '';
+    // `\x1b[K` erases to end of the row so a shrinking prompt/status leaves no
+    // stale characters behind (the orb rows are full-width and self-overwrite).
+    const bottom = opts.bottomLine();
+    const tail = bottom !== null ? `\r\n${bottom}\x1b[K` : '';
 
     opts.term.write(frameSequence(orb + tail));
     opts.afterDraw?.();

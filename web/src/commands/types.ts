@@ -1,0 +1,42 @@
+import type { Session } from '../wasm/meditate_wasm.js';
+import type { Terminal } from '@xterm/xterm';
+
+/** Services a command can use. Grown by later units (audio, store, orb mode). */
+export interface CommandContext {
+  session: Session;
+  term: Terminal;
+  version: string;
+  /** Show a full-screen page; the orb pauses until the user presses a key. */
+  page: (text: string) => void;
+  /** A transient one-line confirmation, shown briefly above the prompt. */
+  status: (line: string) => void;
+  /** The active pattern name (the façade tracks phase, not pattern). */
+  currentPattern: () => string;
+  /** Switch breathing pattern and confirm (keeps pattern logic in one place). */
+  setPattern: (name: string) => void;
+  /** All command names + aliases (incl. hidden), for tab-completion. */
+  commandNames: () => string[];
+  /** Non-hidden commands, for `help` and `man` (kept honest as units land). */
+  visibleCommands: () => Command[];
+}
+
+export interface Command {
+  name: string;
+  aliases?: string[];
+  summary: string;
+  /** Hidden from `help` — the soft-discovery commands (install, whoami). */
+  hidden?: boolean;
+  run(args: string[], ctx: CommandContext): void | Promise<void>;
+}
+
+export interface Parsed {
+  name: string;
+  args: string[];
+}
+
+/** Split a command line into a lowercased verb and its raw args. */
+export function parseLine(line: string): Parsed | null {
+  const parts = line.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return null;
+  return { name: parts[0].toLowerCase(), args: parts.slice(1) };
+}
