@@ -21,9 +21,11 @@ export const soundCommand: Command = {
     }
     if (arg === 'off' || arg === 'stop') {
       ctx.audio.stopSoundscape();
+      ctx.setSound(null);
       ctx.status('sound off');
       return;
     }
+    ctx.setSound(arg);
     ctx.status(`sound · ${arg}`);
     await ctx.audio.playSoundscape(arg);
   },

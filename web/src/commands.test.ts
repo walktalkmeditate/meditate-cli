@@ -39,6 +39,7 @@ function makeContext() {
     session: session as unknown as CommandContext['session'],
     term: { clear: vi.fn() } as unknown as CommandContext['term'],
     audio: {} as unknown as CommandContext['audio'],
+    store: {} as unknown as CommandContext['store'],
     version: '0.0.0',
     page: calls.page,
     status: calls.status,
@@ -49,6 +50,8 @@ function makeContext() {
     },
     graphicsMode: () => false,
     setGraphics: vi.fn(),
+    setSound: vi.fn(),
+    shareLink: () => ({ pattern: current }),
     commandNames: () => [...registry.map.keys()],
     visibleCommands: () => registry.list.filter((c) => !c.hidden),
   };
