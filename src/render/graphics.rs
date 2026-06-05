@@ -45,6 +45,46 @@ pub fn surface_size(cols: usize, orb_rows: usize) -> (usize, usize) {
     }
 }
 
+/// Pixel-art resolution: the orb is painted into a grid at most this many cells
+/// across on its long edge, then block-upscaled, so it reads as deliberate square
+/// pixels rather than a smoothly-scaled photo. This is the "resolution dial" —
+/// larger is smoother, smaller is chunkier.
+const ART_LONG_EDGE: usize = 60;
+
+/// The low-resolution art grid the orb is painted into before upscaling: the cell
+/// region's pixel aspect (square pixels, so the circle stays round) shrunk so its
+/// long edge is at most `ART_LONG_EDGE`. Painting at this size and block-upscaling
+/// is what gives the crisp, chunky pixels instead of a smooth gradient.
+pub fn art_size(cols: usize, orb_rows: usize) -> (usize, usize) {
+    let (w, h) = (cols.max(1), (orb_rows * 2).max(1));
+    let big = w.max(h);
+    if big <= ART_LONG_EDGE {
+        (w, h)
+    } else {
+        (
+            (w * ART_LONG_EDGE / big).max(1),
+            (h * ART_LONG_EDGE / big).max(1),
+        )
+    }
+}
+
+/// Nearest-neighbour upscale of `art` to `w × h`: every source pixel becomes a
+/// solid, hard-edged block (no interpolation), so the pixel look survives the
+/// terminal's own scaling of the transmitted image into the cell region.
+pub fn pixelate(art: &Surface, w: usize, h: usize) -> Surface {
+    let (aw, ah) = (art.width().max(1), art.height().max(1));
+    let (w, h) = (w.max(1), h.max(1));
+    let mut out = Surface::new(w, h, art.get(0, 0));
+    for y in 0..h {
+        let sy = (y * ah / h).min(ah - 1);
+        for x in 0..w {
+            let sx = (x * aw / w).min(aw - 1);
+            out.set(x, y, art.get(sx, sy));
+        }
+    }
+    out
+}
+
 /// A renderer that emits the orb image as terminal escapes.
 pub trait ImageRenderer {
     /// Escapes that draw `surface` scaled to occupy `cols × rows` cells at the
@@ -233,6 +273,37 @@ mod tests {
         assert_eq!(base64(b"Ma"), "TWE=");
         assert_eq!(base64(b"M"), "TQ==");
         assert_eq!(base64(b""), "");
+    }
+
+    #[test]
+    fn art_size_caps_the_long_edge_and_keeps_aspect() {
+        // A typical 80×24 terminal: long edge capped, aspect preserved.
+        let (w, h) = art_size(80, 23);
+        assert!(w.max(h) <= ART_LONG_EDGE);
+        assert_eq!(w, ART_LONG_EDGE); // 80 is the long edge
+        assert!(h < w); // 46 half-rows < 80 cols
+                        // A small terminal already under the cap is left alone (don't upsample art).
+        assert_eq!(art_size(20, 10), (20, 20));
+    }
+
+    #[test]
+    fn pixelate_makes_hard_blocks_not_a_blend() {
+        // A 2×1 source: left red, right blue. Upscaled 4× wide, every output pixel
+        // must be exactly one source color — no interpolated purple at the seam.
+        let mut art = Surface::new(2, 1, Rgb::new(0, 0, 0));
+        art.set(0, 0, Rgb::new(255, 0, 0));
+        art.set(1, 0, Rgb::new(0, 0, 255));
+        let up = pixelate(&art, 8, 4);
+        assert_eq!(up.width(), 8);
+        assert_eq!(up.height(), 4);
+        for y in 0..4 {
+            for x in 0..4 {
+                assert_eq!(up.get(x, y), Rgb::new(255, 0, 0), "left half stays red");
+            }
+            for x in 4..8 {
+                assert_eq!(up.get(x, y), Rgb::new(0, 0, 255), "right half stays blue");
+            }
+        }
     }
 
     #[test]

@@ -863,9 +863,14 @@ impl Session {
         let mut stdout = io::stdout();
         queue!(stdout, cursor::MoveTo(0, 0))?;
         if let Some(kitty) = &self.graphics {
+            // Paint the orb into a small art grid, then block-upscale it: crisp,
+            // chunky pixels rather than a smoothly-scaled image. The half-block
+            // path below is unchanged.
+            let (aw, ah) = graphics::art_size(cols, orb_rows);
+            let mut art = Surface::new(aw, ah, self.palette.background);
+            orb::paint(&mut art, &scene);
             let (pw, ph) = graphics::surface_size(cols, orb_rows);
-            let mut surface = Surface::new(pw, ph, self.palette.background);
-            orb::paint(&mut surface, &scene);
+            let surface = graphics::pixelate(&art, pw, ph);
             stdout.write_all(kitty.frame(&surface, cols, orb_rows).as_bytes())?;
         } else {
             let mut surface = Surface::new(cols, orb_rows * 2, self.palette.background);
@@ -947,6 +952,7 @@ impl Session {
             if cols > 0 && rows >= 2 {
                 let (cols, orb_rows) = (cols as usize, rows as usize - 1);
                 let (pw, ph) = graphics::surface_size(cols, orb_rows);
+                let (aw, ah) = graphics::art_size(cols, orb_rows);
                 for step in 0..12 {
                     let scale = (0.7 - step as f32 * 0.05).max(0.05);
                     let scene = OrbScene {
@@ -956,8 +962,9 @@ impl Session {
                         milestone_flash: 0.0,
                         palette: self.palette,
                     };
-                    let mut surface = Surface::new(pw, ph, self.palette.background);
-                    orb::paint(&mut surface, &scene);
+                    let mut art = Surface::new(aw, ah, self.palette.background);
+                    orb::paint(&mut art, &scene);
+                    let surface = graphics::pixelate(&art, pw, ph);
                     let mut stdout = io::stdout();
                     let _ = queue!(stdout, cursor::MoveTo(0, 0));
                     let _ = stdout.write_all(kitty.frame(&surface, cols, orb_rows).as_bytes());
