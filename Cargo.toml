@@ -8,7 +8,7 @@ members = ["crates/meditate-core", "crates/meditate-wasm"]
 
 [package]
 name = "meditate"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 rust-version = "1.82"
 license = "MIT"
@@ -41,7 +41,7 @@ path = "src/lib.rs"
 [dependencies]
 # The pure breath/orb/palette/title engine, shared with the WASM web build.
 # The version is required to publish to crates.io; the path is used locally.
-meditate-core = { path = "crates/meditate-core", version = "0.3.0" }
+meditate-core = { path = "crates/meditate-core", version = "0.4.0" }
 # Several deps pin to MSRV-safe (Rust 1.82) versions: newer releases of clap,
 # indexmap, and winnow require the unstable edition2024 Cargo feature.
 clap = { version = "=4.5.20", features = ["derive"] }
