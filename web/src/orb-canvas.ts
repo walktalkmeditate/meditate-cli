@@ -4,9 +4,11 @@
 //
 // The gradient stops, radii, scale factors, and layer structure are lifted
 // verbatim from ../pilgrim-ios/Pilgrim/Scenes/ActiveWalk/MeditationView.swift
-// (the orb body, lines 235-275): a soft outer halo, a bright inner core, and a
-// thin ring, with moss ripple rings and drifting fog particles. The background
-// stays terminal-dark (we do not adopt iOS's parchment), so the moss glows.
+// (the orb body, lines 235-275): a soft outer halo, a bright inner core, and
+// moss ripple rings. The background stays terminal-dark (we do not adopt iOS's
+// parchment), so the moss glows. We deliberately omit the drifting fog/stars —
+// in Pilgrim those belong to the separate Constellation appearance mode, not the
+// orb, so here the background stays clean.
 
 import type { Session } from './wasm/meditate_wasm.js';
 
@@ -19,27 +21,10 @@ const HALO_END = 160;
 const CORE_END = 80;
 const FOOTPRINT = 0.46;
 
-const FOG_RGB = '216, 224, 214'; // fog particle color (light, over the dark orb)
-
-const PARTICLE_COUNT = 14;
-const PARTICLE_GLOW_MS = 6000; // iOS: 6s ease-in-out glow cycle
 const RIPPLE_MS = 3000;
-
-interface Particle {
-  x: number; // 0..1 of width
-  y: number; // 0..1 of height
-  size: number; // px
-  base: number; // base opacity
-  drift: number; // vertical drift px/s
-  phase: number; // glow phase offset
-}
 
 interface Ripple {
   life: number; // 0..1
-}
-
-function rand(min: number, max: number): number {
-  return min + Math.random() * (max - min);
 }
 
 export class SmoothOrb {
@@ -47,11 +32,9 @@ export class SmoothOrb {
   private readonly ctx: CanvasRenderingContext2D;
   private w = 0;
   private h = 0;
-  private particles: Particle[] = [];
   private ripples: Ripple[] = [];
   private lastBreath = -1;
   private fade = 0; // cross-fade 0..1 between block and smooth
-  private clock = 0;
   private lastT = -1;
   private raf = 0;
 
@@ -62,7 +45,6 @@ export class SmoothOrb {
     if (!ctx) throw new Error('no 2d context for the smooth orb');
     this.ctx = ctx;
     parent.appendChild(this.canvas);
-    this.seedParticles();
     this.resize();
   }
 
@@ -86,7 +68,6 @@ export class SmoothOrb {
       if (document.hidden) return; // no canvas work for a hidden tab
       const dt = this.lastT < 0 ? 16 : Math.min(64, t - this.lastT);
       this.lastT = t;
-      this.clock += dt;
 
       const target = visible() ? 1 : 0;
       this.fade += (target - this.fade) * Math.min(1, dt / 200);
@@ -104,17 +85,6 @@ export class SmoothOrb {
     cancelAnimationFrame(this.raf);
   }
 
-  private seedParticles(): void {
-    this.particles = Array.from({ length: PARTICLE_COUNT }, () => ({
-      x: rand(0.15, 0.85),
-      y: rand(0.15, 0.85),
-      size: rand(1.5, 4),
-      base: rand(0.08, 0.3),
-      drift: rand(-6, -1),
-      phase: rand(0, PARTICLE_GLOW_MS),
-    }));
-  }
-
   private advance(session: Session, dt: number): void {
     const breath = session.breathCount();
     if (this.lastBreath >= 0 && breath > this.lastBreath) {
@@ -125,11 +95,6 @@ export class SmoothOrb {
 
     for (const r of this.ripples) r.life += dt / RIPPLE_MS;
     this.ripples = this.ripples.filter((r) => r.life < 1);
-
-    for (const p of this.particles) {
-      p.y += (p.drift * dt) / 1000 / this.h;
-      if (p.y < 0.1) p.y = 0.9;
-    }
   }
 
   private paint(session: Session): void {
@@ -158,9 +123,6 @@ export class SmoothOrb {
     ctx.arc(cx, cy, (HALO_FRAME / 2) * s, 0, Math.PI * 2);
     ctx.fill();
 
-    // Drifting fog particles (under the core, like the iOS particle layer).
-    this.paintParticles(cx, cy, unit);
-
     // Moss ripple rings — emitted on each completed breath, expanding + fading.
     for (const r of this.ripples) {
       const radius = (40 + 160 * r.life) * unit;
@@ -184,25 +146,5 @@ export class SmoothOrb {
     // pulse above, so nothing flickers in and out with the breath.)
 
     ctx.globalAlpha = 1;
-  }
-
-  private paintParticles(cx: number, cy: number, unit: number): void {
-    const ctx = this.ctx;
-    const spread = HALO_END * unit * 1.1;
-    for (const p of this.particles) {
-      // iOS oscillates particle glow over a 6s ease-in-out cycle.
-      const t = ((this.clock + p.phase) % PARTICLE_GLOW_MS) / PARTICLE_GLOW_MS;
-      const glow = 0.5 + 0.5 * Math.sin(t * Math.PI * 2);
-      const alpha = p.base * (0.5 + glow);
-      const px = cx + (p.x - 0.5) * 2 * spread;
-      const py = cy + (p.y - 0.5) * 2 * spread;
-      const g = ctx.createRadialGradient(px, py, 0, px, py, p.size * 2);
-      g.addColorStop(0, `rgba(${FOG_RGB}, ${alpha})`);
-      g.addColorStop(1, `rgba(${FOG_RGB}, 0)`);
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(px, py, p.size * 2, 0, Math.PI * 2);
-      ctx.fill();
-    }
   }
 }
