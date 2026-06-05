@@ -49,6 +49,7 @@ pub fn resolve_start_pattern(
 }
 
 pub fn run(cli: Cli) -> i32 {
+    paths::migrate_legacy_dirs();
     match &cli.command {
         Some(Command::Config { action }) => cmd_config(action.as_ref()),
         Some(Command::Download(args)) => cmd_download(args),
