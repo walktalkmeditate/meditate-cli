@@ -23,6 +23,14 @@ const FOOTPRINT = 0.46;
 
 const RIPPLE_MS = 3000;
 
+// Voice rings: while a guide speaks, four outer rings vibrate around the orb
+// (mirrors iOS MeditationView voiceRingLayer). Radii are multiples of the halo
+// radius; the pulse oscillates their scale + opacity over ~2.5s.
+const VOICE_RING_FACTORS = [1.06, 1.2, 1.34, 1.48];
+const VOICE_RING_OPACITY = [0.24, 0.18, 0.13, 0.09];
+const VOICE_RING_IRREG = [0.6, -0.9, 0.4, -0.5];
+const VOICE_PULSE_MS = 2500;
+
 interface Ripple {
   life: number; // 0..1
 }
@@ -35,6 +43,8 @@ export class SmoothOrb {
   private ripples: Ripple[] = [];
   private lastBreath = -1;
   private fade = 0; // cross-fade 0..1 between block and smooth
+  private voiceEnv = 0; // 0..1, eased up while a voice prompt speaks
+  private clock = 0; // ms, drives the voice-ring pulse
   private lastT = -1;
   private raf = 0;
 
@@ -62,12 +72,16 @@ export class SmoothOrb {
 
   /** Run the orb's own rAF (independent of the breath loop, so it keeps fading
    *  cleanly even while a help page is up). `visible()` gates block vs smooth. */
-  start(session: Session, visible: () => boolean): void {
+  start(session: Session, visible: () => boolean, voiceActive: () => boolean): void {
     const frame = (t: number): void => {
       this.raf = requestAnimationFrame(frame);
       if (document.hidden) return; // no canvas work for a hidden tab
       const dt = this.lastT < 0 ? 16 : Math.min(64, t - this.lastT);
       this.lastT = t;
+      this.clock += dt;
+
+      // Ease a 0..1 envelope toward 1 while a prompt speaks (drives the rings).
+      this.voiceEnv += ((voiceActive() ? 1 : 0) - this.voiceEnv) * Math.min(1, dt / 500);
 
       const target = visible() ? 1 : 0;
       this.fade += (target - this.fade) * Math.min(1, dt / 200);
@@ -133,10 +147,28 @@ export class SmoothOrb {
       ctx.stroke();
     }
 
+    // Voice rings — while a guide speaks, four outer rings vibrate (scale +
+    // opacity pulse) and the core softens. Mirrors the iOS voiceRingLayer.
+    const pulse = 0.5 + 0.5 * Math.sin((this.clock / VOICE_PULSE_MS) * Math.PI * 2);
+    const soften = 1 - this.voiceEnv * 0.16;
+    if (this.voiceEnv > 0.01) {
+      const ringScale = 0.97 + 0.07 * pulse;
+      const ringOpacity = 0.6 + 0.4 * pulse;
+      const baseR = HALO_END * unit;
+      for (let i = 0; i < VOICE_RING_FACTORS.length; i++) {
+        const r = baseR * (VOICE_RING_FACTORS[i] + VOICE_RING_IRREG[i] * 0.02) * ringScale;
+        ctx.strokeStyle = moss(VOICE_RING_OPACITY[i] * this.voiceEnv * ringOpacity);
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
     // Inner core — moss 0.7+glow·0.2 → 0.3+glow·0.1, startRadius 0, endRadius 80.
     const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, CORE_END * s);
-    core.addColorStop(0, moss(0.7 + glow * 0.2));
-    core.addColorStop(1, moss(0.3 + glow * 0.1));
+    core.addColorStop(0, moss((0.7 + glow * 0.2) * soften));
+    core.addColorStop(1, moss((0.3 + glow * 0.1) * soften));
     ctx.fillStyle = core;
     ctx.beginPath();
     ctx.arc(cx, cy, (CORE_FRAME / 2) * s, 0, Math.PI * 2);

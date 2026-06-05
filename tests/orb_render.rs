@@ -11,6 +11,47 @@ fn phase(phase: Phase, progress: f32) -> PhaseState {
     }
 }
 
+#[test]
+fn voice_rings_light_the_outer_band_only_while_a_guide_speaks() {
+    let pal = palette(Season::Spring, TimeOfDay::Day);
+    let render = |voice: f32| {
+        let scene = OrbScene {
+            scale: 1.0,
+            glow: 0.0,
+            ripples: vec![],
+            milestone_flash: 0.0,
+            voice,
+            voice_pulse: 1.0,
+            palette: pal,
+        };
+        let mut s = Surface::new(120, 120, pal.background);
+        paint(&mut s, &scene);
+        s
+    };
+    // The orb fills to ~base (0.46·120 ≈ 55px); the voice rings sit at 1.2–1.48·base.
+    // Count lit pixels in a band that's outside the orb but inside the rings.
+    let band_pixels = |s: &Surface| -> usize {
+        let (cx, cy) = (60.0f32, 60.0f32);
+        let mut n = 0;
+        for y in 0..s.height() {
+            for x in 0..s.width() {
+                let dx = x as f32 + 0.5 - cx;
+                let dy = y as f32 + 0.5 - cy;
+                let d = (dx * dx + dy * dy).sqrt();
+                if (66.0..82.0).contains(&d) && s.get(x, y) != pal.background {
+                    n += 1;
+                }
+            }
+        }
+        n
+    };
+    assert_eq!(band_pixels(&render(0.0)), 0, "no rings while silent");
+    assert!(
+        band_pixels(&render(1.0)) > 0,
+        "voice lights the outer rings"
+    );
+}
+
 fn assert_close(actual: f32, expected: f32) {
     assert!(
         (actual - expected).abs() < 1e-3,
@@ -24,6 +65,8 @@ fn scene(scale: f32) -> OrbScene {
         glow: 0.0,
         ripples: vec![],
         milestone_flash: 0.0,
+        voice: 0.0,
+        voice_pulse: 0.0,
         palette: palette(Season::Spring, TimeOfDay::Day),
     }
 }

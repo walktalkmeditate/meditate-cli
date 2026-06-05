@@ -380,6 +380,9 @@ struct Session {
     voices: Vec<(String, PathBuf)>,
     voice_idx: Option<usize>,
     voice: Option<VoiceScheduler>,
+    /// When the currently-playing voice prompt finishes — drives the orb's voice
+    /// rings + core-soften while a guide speaks.
+    voice_until: Option<Instant>,
     bells: Vec<(String, PathBuf)>,
     bell_idx: Option<usize>,
     bell_samples: Option<Arc<Vec<f32>>>,
@@ -448,6 +451,7 @@ impl Session {
             voices: pack::cached_files(data_dir, AssetKind::Voice),
             voice_idx: None,
             voice: None,
+            voice_until: None,
             bells: pack::cached_files(data_dir, AssetKind::Bell),
             bell_idx: None,
             bell_samples: None,
@@ -523,6 +527,7 @@ impl Session {
         let mut milestones = MilestoneTracker::new();
         let mut last_breath = 0u32;
         let mut flash_remaining = 0.0f32;
+        let mut voice_env = 0.0f32;
         let mut hint_until = start + Duration::from_secs(4);
         let mut message = String::new();
         let mut message_expiry = start;
@@ -555,6 +560,16 @@ impl Session {
 
             self.tick_voice(now.as_secs());
 
+            // Ease a 0..1 envelope toward 1 while a prompt is speaking; a slow
+            // sine vibrates the voice rings (~2.5s, matching iOS).
+            let voice_target = if self.voice_until.is_some_and(|until| frame_now < until) {
+                1.0
+            } else {
+                0.0
+            };
+            voice_env += (voice_target - voice_env) * (dt / 0.5).min(1.0);
+            let voice_pulse = 0.5 + 0.5 * (now.as_secs_f32() * std::f32::consts::TAU / 2.5).sin();
+
             // The wrapped command finishing ends the session, just like a timer.
             let finished = self.waiting.as_mut().and_then(|w| w.poll());
             if let Some(report) = finished {
@@ -577,6 +592,8 @@ impl Session {
                 state,
                 &ripples,
                 flash_remaining / MILESTONE_FLASH_SECS,
+                voice_env,
+                voice_pulse,
                 hint_visible,
                 &message,
             );
@@ -762,6 +779,8 @@ impl Session {
         };
         let path = self.voices[idx].1.join(format!("{safe_id}.aac"));
         if let Some(samples) = pack::soundscape::load_samples(&path, self.audio.sample_rate()) {
+            let secs = samples.len() as f64 / self.audio.sample_rate().max(1) as f64;
+            self.voice_until = Some(Instant::now() + Duration::from_secs_f64(secs));
             self.audio.play_voice(Arc::new(samples));
         }
     }
@@ -839,11 +858,14 @@ impl Session {
         }
     }
 
+    #[allow(clippy::too_many_arguments)] // render inputs for one frame
     fn draw(
         &self,
         state: breath::PhaseState,
         ripples: &[f32],
         flash: f32,
+        voice: f32,
+        voice_pulse: f32,
         hint_visible: bool,
         message: &str,
     ) -> io::Result<()> {
@@ -857,6 +879,8 @@ impl Session {
             glow: orb::glow_for(state),
             ripples: ripples.to_vec(),
             milestone_flash: flash,
+            voice,
+            voice_pulse,
             palette: self.palette,
         };
 
@@ -923,6 +947,8 @@ impl Session {
                 glow: 0.0,
                 ripples: Vec::new(),
                 milestone_flash: 0.0,
+                voice: 0.0,
+                voice_pulse: 0.0,
                 palette: self.palette,
             };
             if let Ok((cols, rows)) = terminal::size() {
@@ -960,6 +986,8 @@ impl Session {
                         glow: 0.0,
                         ripples: Vec::new(),
                         milestone_flash: 0.0,
+                        voice: 0.0,
+                        voice_pulse: 0.0,
                         palette: self.palette,
                     };
                     let mut art = Surface::new(aw, ah, self.palette.background);

@@ -9,6 +9,16 @@ pub const STILL_SCALE: f32 = 0.7;
 /// Half-thickness (in pixels) of the breath ripple ring.
 const RIPPLE_HALF_WIDTH: f32 = 1.6;
 
+/// Outer rings that appear and vibrate while a voice guide speaks — mirrors the
+/// iOS MeditationView voiceRingLayer (4 concentric rings, scale + opacity pulse).
+/// Radii are multiples of the orb's base radius; the outer ones extend past the
+/// orb and clip naturally on a short terminal.
+const VOICE_RING_RADII: [f32; 4] = [1.06, 1.20, 1.34, 1.48];
+const VOICE_RING_OPACITY: [f32; 4] = [0.24, 0.18, 0.13, 0.09];
+/// A tiny per-ring radius wobble, so the set reads as organic, not machined.
+const VOICE_RING_IRREG: [f32; 4] = [0.6, -0.9, 0.4, -0.5];
+const VOICE_RING_HALF_WIDTH: f32 = 1.2;
+
 /// Smoothstep easing, matching the felt curve of the iOS `.easeInOut` orb.
 pub fn ease_in_out(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
@@ -43,6 +53,11 @@ pub struct OrbScene {
     /// Each ripple's life from 0.0 (just emitted) to 1.0 (faded out).
     pub ripples: Vec<f32>,
     pub milestone_flash: f32,
+    /// 0 = silent, 1 = a guide prompt is speaking. Raises the outer voice rings
+    /// and gently softens the core while the voice plays.
+    pub voice: f32,
+    /// A 0..1 oscillator (caller-driven, ~2.5s) that vibrates the voice rings.
+    pub voice_pulse: f32,
     pub palette: Palette,
 }
 
@@ -62,6 +77,14 @@ pub fn paint(surface: &mut Surface, scene: &OrbScene) {
     let base = (width.min(height) as f32 / 2.0) * 0.92;
     let radius = (base * scene.scale).max(1.0);
 
+    // While a guide speaks the core recedes a touch and the rings pulse: scale
+    // 0.97..1.04 and opacity 0.6..1.0, driven by the caller's voice oscillator.
+    let voice = scene.voice.clamp(0.0, 1.0);
+    let pulse = scene.voice_pulse.clamp(0.0, 1.0);
+    let ring_scale = 0.97 + 0.07 * pulse;
+    let ring_opacity = 0.6 + 0.4 * pulse;
+    let soften = 1.0 - voice * 0.16;
+
     for y in 0..height {
         for x in 0..width {
             let dx = x as f32 + 0.5 - cx;
@@ -71,10 +94,24 @@ pub fn paint(surface: &mut Surface, scene: &OrbScene) {
             if dist <= radius {
                 let t = dist / radius;
                 let body = Rgb::lerp(scene.palette.core, scene.palette.edge, t);
-                surface.blend(x, y, body, 1.0 - t * 0.2);
+                surface.blend(x, y, body, (1.0 - t * 0.2) * soften);
                 if scene.glow > 0.0 {
                     let inner = 1.0 - (dist / (radius * 0.5)).min(1.0);
-                    surface.blend(x, y, scene.palette.core, inner * scene.glow * 0.35);
+                    surface.blend(x, y, scene.palette.core, inner * scene.glow * 0.35 * soften);
+                }
+            }
+
+            if voice > 0.001 {
+                for i in 0..VOICE_RING_RADII.len() {
+                    let rr = base * (VOICE_RING_RADII[i] + VOICE_RING_IRREG[i] * 0.02) * ring_scale;
+                    let edge = (dist - rr).abs();
+                    if edge < VOICE_RING_HALF_WIDTH {
+                        let a = VOICE_RING_OPACITY[i]
+                            * voice
+                            * ring_opacity
+                            * (1.0 - edge / VOICE_RING_HALF_WIDTH);
+                        surface.blend(x, y, scene.palette.ripple, a);
+                    }
                 }
             }
 

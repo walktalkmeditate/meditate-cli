@@ -47,6 +47,9 @@ export interface LoopOptions {
   /** Called after each drawn frame (the session's accessors are current) —
    *  used to drive the breathing favicon and the tab title. */
   afterDraw?: () => void;
+  /** Whether a voice prompt is currently speaking — raises the half-block orb's
+   *  vibrating voice rings (the smooth orb reads the same signal directly). */
+  voiceActive?: () => boolean;
 }
 
 export interface LoopHandle {
@@ -85,6 +88,7 @@ export function startBreathing(opts: LoopOptions): LoopHandle {
     // stale characters behind.
     const promptTail = bottom !== null ? `${bottom}\x1b[K` : '';
     const smooth = opts.orbMode?.() === 'smooth';
+    opts.session.setVoice(opts.voiceActive?.() ?? false);
 
     if (smooth) {
       // The Canvas-2D orb draws the orb; the terminal just advances the breath

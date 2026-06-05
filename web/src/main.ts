@@ -253,10 +253,11 @@ async function boot(): Promise<void> {
     isPaging: () => paging,
     orbMode: () => (smoothMode ? 'smooth' : 'block'),
     afterDraw: reflectBreath,
+    voiceActive: () => audio.isVoiceSpeaking(),
   });
 
   // The smooth orb draws only when in graphics mode and no page is up.
-  smoothOrb.start(session, () => smoothMode && !paging);
+  smoothOrb.start(session, () => smoothMode && !paging, () => audio.isVoiceSpeaking());
 
   // Earn a streak day: accrue active breathing time (visible + not paused) and
   // mark today once it crosses the minimum — mirrors src/streak.rs's threshold.

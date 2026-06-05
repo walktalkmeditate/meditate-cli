@@ -39,6 +39,10 @@ pub struct Session {
     /// every completed breath — the radiating pulse the smooth orb also shows.
     ripples: Vec<f32>,
     last_breath: u32,
+    /// 0..1 envelope, eased toward 1 while a guide speaks (JS sets the target via
+    /// `setVoice`); drives the orb's vibrating voice rings + core-soften.
+    voice_env: f32,
+    voice_active: bool,
 }
 
 #[wasm_bindgen]
@@ -65,7 +69,17 @@ impl Session {
             last_now: Duration::ZERO,
             ripples: Vec::new(),
             last_breath: 0,
+            voice_env: 0.0,
+            voice_active: false,
         }
+    }
+
+    /// Tell the orb whether a voice guide is currently speaking, so it raises the
+    /// vibrating outer rings and softens the core. JS owns audio playback and
+    /// flips this as prompts start and end.
+    #[wasm_bindgen(js_name = setVoice)]
+    pub fn set_voice(&mut self, active: bool) {
+        self.voice_active = active;
     }
 
     /// Emit a ripple on each newly completed breath, then age and cull the rest.
@@ -117,6 +131,12 @@ impl Session {
         self.last_state = state;
         self.advance_ripples(dt);
 
+        // Ease the voice envelope toward its target; a slow sine vibrates the
+        // rings (~2.5s, matching the CLI and iOS).
+        let voice_target = if self.voice_active { 1.0 } else { 0.0 };
+        self.voice_env += (voice_target - self.voice_env) * (dt / 0.5).min(1.0);
+        let voice_pulse = 0.5 + 0.5 * (now.as_secs_f32() * std::f32::consts::TAU / 2.5).sin();
+
         let (cols, rows) = (cols as usize, rows as usize);
         if cols == 0 || rows == 0 {
             return String::new();
@@ -127,6 +147,8 @@ impl Session {
             glow: orb::glow_for(state),
             ripples: self.ripples.clone(),
             milestone_flash: 0.0,
+            voice: self.voice_env,
+            voice_pulse,
             palette: self.palette,
         };
         let mut surface = Surface::new(cols, rows * 2, self.palette.background);

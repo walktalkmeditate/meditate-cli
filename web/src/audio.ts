@@ -157,6 +157,9 @@ export class AudioEngine {
   private soundGen = 0;
   private voiceGen = 0;
   private voiceActive = false;
+  // True only while a prompt is audibly playing (not the silent gap) — the orb
+  // raises its voice rings while this holds, matching the CLI's per-prompt window.
+  private voiceSpeaking = false;
   private voiceTimers: number[] = [];
   private currentBell: string | null = null;
   private muteHinted = false;
@@ -290,7 +293,11 @@ export class AudioEngine {
       const src = ctx.createBufferSource();
       src.buffer = buffer;
       src.connect(this.master!);
-      src.onended = () => src.disconnect();
+      this.voiceSpeaking = true;
+      src.onended = () => {
+        src.disconnect();
+        if (gen === this.voiceGen) this.voiceSpeaking = false;
+      };
       src.start();
       const gapMs = (buffer.duration + voiceGapSecs()) * 1000;
       this.voiceTimers.push(window.setTimeout(() => void playNext(), gapMs));
@@ -301,9 +308,16 @@ export class AudioEngine {
   stopVoice(): void {
     this.voiceGen++;
     this.voiceActive = false;
+    this.voiceSpeaking = false;
     this.voiceTimers.forEach((t) => window.clearTimeout(t));
     this.voiceTimers = [];
     this.duckTo(1);
+  }
+
+  /** Whether a meditation prompt is audibly speaking right now (not the silent
+   *  gap) — the orb raises its vibrating voice rings while this is true. */
+  isVoiceSpeaking(): boolean {
+    return this.voiceSpeaking;
   }
 
   private duckTo(level: number): void {
