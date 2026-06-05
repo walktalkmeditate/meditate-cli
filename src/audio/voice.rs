@@ -8,7 +8,8 @@ pub const CLOSING_MIN_SECS: u64 = 600;
 pub const INITIAL_DELAY_SECS: u64 = 30;
 // Spacing between prompts jitters in this range, so the guide arrives with a
 // gentle element of surprise rather than a fixed cadence — never rushed, never
-// absent. The web jitters its gap the same way (web/src/audio.ts).
+// absent. The web applies the same jitter idea over a shorter range (its
+// sessions skew shorter) — see VOICE_GAP_*_SECS in web/src/audio.ts.
 pub const MIN_SPACING_SECS: u64 = 90;
 pub const MAX_SPACING_SECS: u64 = 150;
 

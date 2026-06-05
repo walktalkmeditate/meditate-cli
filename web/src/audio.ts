@@ -30,7 +30,8 @@ const BELL_GAIN = 0.18;
 
 // Silence between meditation voice prompts — a bounded random gap, so the guide
 // arrives with a gentle element of surprise rather than a fixed cadence (never
-// rushed, never abandoned). The CLI jitters its spacing the same way.
+// rushed, never abandoned). The CLI applies the same jitter idea over a longer
+// range (MIN/MAX_SPACING_SECS in src/audio/voice.rs).
 const VOICE_GAP_MIN_SECS = 45;
 const VOICE_GAP_MAX_SECS = 105;
 
@@ -160,7 +161,8 @@ export class AudioEngine {
   // True only while a prompt is audibly playing (not the silent gap) — the orb
   // raises its voice rings while this holds, matching the CLI's per-prompt window.
   private voiceSpeaking = false;
-  private voiceTimers: number[] = [];
+  // Only one prompt timer is ever live at a time.
+  private voiceTimer = 0;
   private currentBell: string | null = null;
   private muteHinted = false;
 
@@ -298,9 +300,18 @@ export class AudioEngine {
         src.disconnect();
         if (gen === this.voiceGen) this.voiceSpeaking = false;
       };
-      src.start();
+      try {
+        src.start();
+      } catch {
+        // A suspended/closed context (e.g. an iOS audio interruption) rejects
+        // start(); don't leave the orb's rings raised with no sound, and don't
+        // chain the next prompt into a dead context.
+        this.voiceSpeaking = false;
+        src.disconnect();
+        return;
+      }
       const gapMs = (buffer.duration + voiceGapSecs()) * 1000;
-      this.voiceTimers.push(window.setTimeout(() => void playNext(), gapMs));
+      this.voiceTimer = window.setTimeout(() => void playNext(), gapMs);
     };
     void playNext();
   }
@@ -309,8 +320,7 @@ export class AudioEngine {
     this.voiceGen++;
     this.voiceActive = false;
     this.voiceSpeaking = false;
-    this.voiceTimers.forEach((t) => window.clearTimeout(t));
-    this.voiceTimers = [];
+    window.clearTimeout(this.voiceTimer);
     this.duckTo(1);
   }
 

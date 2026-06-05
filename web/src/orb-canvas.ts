@@ -26,9 +26,14 @@ const RIPPLE_MS = 3000;
 // Voice rings: while a guide speaks, four outer rings vibrate around the orb
 // (mirrors iOS MeditationView voiceRingLayer). Radii are multiples of the halo
 // radius; the pulse oscillates their scale + opacity over ~2.5s.
-const VOICE_RING_FACTORS = [1.06, 1.2, 1.34, 1.48];
-const VOICE_RING_OPACITY = [0.24, 0.18, 0.13, 0.09];
-const VOICE_RING_IRREG = [0.6, -0.9, 0.4, -0.5];
+// Each voice ring as one record, so factor/opacity/irregularity can't drift out
+// of sync — a parallel-array length mismatch would silently paint a NaN ring.
+const VOICE_RINGS = [
+  { factor: 1.06, opacity: 0.24, irreg: 0.6 },
+  { factor: 1.2, opacity: 0.18, irreg: -0.9 },
+  { factor: 1.34, opacity: 0.13, irreg: 0.4 },
+  { factor: 1.48, opacity: 0.09, irreg: -0.5 },
+];
 const VOICE_PULSE_MS = 2500;
 
 interface Ripple {
@@ -155,9 +160,9 @@ export class SmoothOrb {
       const ringScale = 0.97 + 0.07 * pulse;
       const ringOpacity = 0.6 + 0.4 * pulse;
       const baseR = HALO_END * unit;
-      for (let i = 0; i < VOICE_RING_FACTORS.length; i++) {
-        const r = baseR * (VOICE_RING_FACTORS[i] + VOICE_RING_IRREG[i] * 0.02) * ringScale;
-        ctx.strokeStyle = moss(VOICE_RING_OPACITY[i] * this.voiceEnv * ringOpacity);
+      for (const ring of VOICE_RINGS) {
+        const r = baseR * (ring.factor + ring.irreg * 0.02) * ringScale;
+        ctx.strokeStyle = moss(ring.opacity * this.voiceEnv * ringOpacity);
         ctx.lineWidth = 1.2;
         ctx.beginPath();
         ctx.arc(cx, cy, r, 0, Math.PI * 2);
