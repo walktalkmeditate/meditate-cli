@@ -23,11 +23,14 @@ fn elapsed_time_maps_to_phase() {
 
 #[test]
 fn scheduler_respects_delay_spacing_and_phase() {
-    let mut scheduler = VoiceScheduler::new(vec![
-        prompt("s1", "settling"),
-        prompt("d1", "deepening"),
-        prompt("c1", "closing"),
-    ]);
+    let mut scheduler = VoiceScheduler::new(
+        vec![
+            prompt("s1", "settling"),
+            prompt("d1", "deepening"),
+            prompt("c1", "closing"),
+        ],
+        42,
+    );
 
     assert!(scheduler.next(20).is_none());
     assert_eq!(scheduler.next(30).map(|p| p.id), Some("s1".to_string()));
@@ -40,7 +43,7 @@ fn scheduler_respects_delay_spacing_and_phase() {
 
 #[test]
 fn empty_pack_offers_nothing() {
-    let mut scheduler = VoiceScheduler::new(vec![]);
+    let mut scheduler = VoiceScheduler::new(vec![], 42);
     assert!(scheduler.is_empty());
     assert!(scheduler.next(120).is_none());
 }

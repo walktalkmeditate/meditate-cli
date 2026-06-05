@@ -5,6 +5,7 @@ import {
   equalPowerGains,
   assetsOfType,
   meditationPacks,
+  crossfadeLoopChannel,
 } from './audio';
 
 describe('CDN URL parity with the CLI (src/pack/mod.rs)', () => {
@@ -62,5 +63,30 @@ describe('equal-power crossfade', () => {
     expect(equalPowerGains(1).fadeIn).toBeCloseTo(1, 5);
     expect(equalPowerGains(-1).fadeIn).toBeCloseTo(0, 5); // clamped
     expect(equalPowerGains(2).fadeOut).toBeCloseTo(0, 5); // clamped
+  });
+});
+
+describe('seamless loop crossfade', () => {
+  it('shortens the channel by the crossfade length and makes the wrap continuous', () => {
+    // #given a ramp 0..9 where the raw wrap (9 -> 0) is a hard discontinuity
+    const src = Float32Array.from({ length: 10 }, (_, i) => i);
+
+    // #when we fold a 2-sample tail into the head
+    const out = crossfadeLoopChannel(src, 2);
+
+    // #then the loop is `len - xfade` long, the body past the fade is untouched,
+    // and out[0] picks up the tail (src[len - xfade]) so out[last] -> out[0]
+    // continues the original sequence (src[7] -> src[8]) instead of (9 -> 0).
+    expect(out.length).toBe(8);
+    expect(out[2]).toBeCloseTo(2, 5); // body unchanged from index xfade on
+    expect(out[7]).toBeCloseTo(7, 5); // last sample is src[7]
+    expect(out[0]).toBeCloseTo(8, 5); // = src[len - xfade] = src[8], adjacent to 7
+  });
+
+  it('returns a copy when the clip is too short to fold', () => {
+    const src = Float32Array.from([5]);
+    const out = crossfadeLoopChannel(src, 5);
+    expect(Array.from(out)).toEqual([5]);
+    expect(out).not.toBe(src); // a copy, not the same reference
   });
 });

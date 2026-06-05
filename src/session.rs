@@ -500,7 +500,7 @@ impl Session {
         if let Some(prompts) = pack::load_voice_prompts(&self.voices[i].1) {
             if !prompts.is_empty() {
                 self.voice_idx = Some(i);
-                self.voice = Some(VoiceScheduler::new(prompts));
+                self.voice = Some(VoiceScheduler::new(prompts, audio::voice::time_seed()));
             }
         }
     }
@@ -730,7 +730,7 @@ impl Session {
                 let (id, dir) = self.voices[i].clone();
                 match pack::load_voice_prompts(&dir) {
                     Some(prompts) if !prompts.is_empty() => {
-                        self.voice = Some(VoiceScheduler::new(prompts));
+                        self.voice = Some(VoiceScheduler::new(prompts, audio::voice::time_seed()));
                         Some(title_case(&id))
                     }
                     _ => {

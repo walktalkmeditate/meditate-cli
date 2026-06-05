@@ -7,6 +7,9 @@ use std::sync::Arc;
 
 pub const SAMPLE_RATE: u32 = 44_100;
 pub const CROSSFADE_SECS: f32 = 4.0;
+/// Tail-into-head crossfade length for a seamless soundscape loop (no audible
+/// restart at the wrap). Mirrors web/src/audio.ts.
+pub const LOOP_CROSSFADE_SECS: f32 = 3.0;
 pub const DUCK_LEVEL: f32 = 0.35;
 pub const DUCK_FADE_SECS: f32 = 0.5;
 
@@ -104,6 +107,9 @@ impl Mixer {
         if samples.is_empty() {
             return;
         }
+        // Fold the tail into the head so the loop has no audible seam at the wrap.
+        let xfade = (LOOP_CROSSFADE_SECS * self.sample_rate as f32) as usize;
+        let looped = Arc::new(seamless_loop(&samples, xfade));
         let ramp = ramp_for(CROSSFADE_SECS, self.sample_rate);
         for layer in self
             .layers
@@ -120,7 +126,7 @@ impl Mixer {
             1.0
         };
         self.layers.push(Layer {
-            samples,
+            samples: looped,
             pos: 0,
             slot: Slot::Soundscape,
             looping: true,
@@ -261,6 +267,35 @@ impl Mixer {
     }
 }
 
+/// Crossfade a mono clip's tail into its head so it loops without a seam. The
+/// result is `len - xfade` samples: the first `xfade` blend the head (fading in)
+/// with the folded-in tail (fading out), so the wrap from the last sample back
+/// to the first continues the original waveform. Mirrors `crossfadeLoopChannel`
+/// in web/src/audio.ts.
+fn seamless_loop(samples: &[f32], xfade: usize) -> Vec<f32> {
+    let xfade = xfade.min(samples.len() / 2);
+    if xfade < 1 {
+        return samples.to_vec();
+    }
+    let out_len = samples.len() - xfade;
+    let mut out = Vec::with_capacity(out_len);
+    for i in 0..out_len {
+        if i < xfade {
+            let (fade_in, fade_out) = equal_power(i as f32 / xfade as f32);
+            out.push(samples[i] * fade_in + samples[i + out_len] * fade_out);
+        } else {
+            out.push(samples[i]);
+        }
+    }
+    out
+}
+
+/// Equal-power crossfade gains (sum of squares ≈ 1) for `t` in 0..1.
+fn equal_power(t: f32) -> (f32, f32) {
+    let x = t.clamp(0.0, 1.0) * std::f32::consts::FRAC_PI_2;
+    (x.sin(), x.cos())
+}
+
 fn approach(current: f32, target: f32, ramp: f32) -> f32 {
     if ramp <= 0.0 || (target - current).abs() <= ramp {
         target
@@ -320,4 +355,28 @@ pub fn open() -> Box<dyn AudioBackend> {
         }
     }
     Box::new(SilentBackend)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seamless_loop_shortens_and_makes_the_wrap_continuous() {
+        // A ramp 0..9 whose raw wrap (9 -> 0) is a hard discontinuity.
+        let src: Vec<f32> = (0..10).map(|i| i as f32).collect();
+        let out = seamless_loop(&src, 2);
+
+        assert_eq!(out.len(), 8); // len - xfade
+        assert!((out[2] - 2.0).abs() < 1e-5); // body unchanged past the fade
+        assert!((out[7] - 7.0).abs() < 1e-5); // last sample is src[7]
+                                              // out[0] folds in the tail (src[len - xfade] = src[8]), so out[7] -> out[0]
+                                              // continues 7 -> 8 instead of jumping 9 -> 0.
+        assert!((out[0] - 8.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn seamless_loop_leaves_a_too_short_clip_alone() {
+        assert_eq!(seamless_loop(&[5.0], 4), vec![5.0]);
+    }
 }

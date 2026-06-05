@@ -11,6 +11,9 @@ const VOICE_BASE = 'https://cdn.pilgrimapp.org/voiceguide';
 
 // Mirrors src/audio/mod.rs.
 const CROSSFADE_SECS = 4.0;
+// Tail-into-head crossfade length for a seamless soundscape loop (no audible
+// restart at the wrap). Mirrors src/audio/mod.rs.
+const LOOP_CROSSFADE_SECS = 3.0;
 const DUCK_LEVEL = 0.35;
 const DUCK_FADE_SECS = 0.5;
 
@@ -25,10 +28,15 @@ const BELL_PARTIALS: ReadonlyArray<readonly [number, number]> = [
 const BELL_SECS = 1.6;
 const BELL_GAIN = 0.18;
 
-// Silence between meditation voice prompts. Generous, so the guide punctuates
-// the breathing rather than talking over it (the CLI schedules against the
-// breath; the web uses a calm fixed cadence).
-const VOICE_GAP_SECS = 60;
+// Silence between meditation voice prompts — a bounded random gap, so the guide
+// arrives with a gentle element of surprise rather than a fixed cadence (never
+// rushed, never abandoned). The CLI jitters its spacing the same way.
+const VOICE_GAP_MIN_SECS = 45;
+const VOICE_GAP_MAX_SECS = 105;
+
+function voiceGapSecs(): number {
+  return VOICE_GAP_MIN_SECS + Math.random() * (VOICE_GAP_MAX_SECS - VOICE_GAP_MIN_SECS);
+}
 
 export interface AudioAsset {
   id: string;
@@ -92,6 +100,40 @@ function equalPowerCurve(kind: 'in' | 'out'): Float32Array {
   return curve;
 }
 
+/** Crossfade a channel's tail into its head so it loops seamlessly. Returns a
+ *  buffer of length `len − xfade`: each sample in the first `xfade` blends the
+ *  head (fading in) with the folded-in tail (fading out), so the wrap from the
+ *  last sample back to the first is continuous. Pure, so audio.test.ts can cover
+ *  it without an AudioContext. */
+export function crossfadeLoopChannel(src: Float32Array, xfade: number): Float32Array {
+  const x = Math.min(Math.max(0, Math.floor(xfade)), Math.floor(src.length / 2));
+  if (x < 1) return src.slice();
+  const outLen = src.length - x;
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    if (i < x) {
+      const { fadeIn, fadeOut } = equalPowerGains(i / x);
+      out[i] = src[i] * fadeIn + src[i + outLen] * fadeOut;
+    } else {
+      out[i] = src[i];
+    }
+  }
+  return out;
+}
+
+/** A seamless-loop copy of `buffer`: the tail crossfaded into the head over
+ *  `xfadeSecs`, ready for `source.loop = true`. Falls back to the original when
+ *  the clip is too short to fold. */
+function makeSeamlessLoop(ctx: BaseAudioContext, buffer: AudioBuffer, xfadeSecs: number): AudioBuffer {
+  const x = Math.min(Math.floor(xfadeSecs * buffer.sampleRate), Math.floor(buffer.length / 2));
+  if (x < 1) return buffer;
+  const out = ctx.createBuffer(buffer.numberOfChannels, buffer.length - x, buffer.sampleRate);
+  for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+    out.getChannelData(ch).set(crossfadeLoopChannel(buffer.getChannelData(ch), x));
+  }
+  return out;
+}
+
 interface Soundscape {
   id: string;
   source: AudioBufferSourceNode;
@@ -103,6 +145,8 @@ export class AudioEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private readonly buffers = new Map<string, AudioBuffer>();
+  // Seamless-loop copies of soundscape buffers, computed once per id.
+  private readonly loopBuffers = new Map<string, AudioBuffer>();
   // Manifest fetches are deduped by caching the in-flight promise, so concurrent
   // callers (e.g. list + play at startup) share one request.
   private audioManifest: Promise<AudioManifest | null> | null = null;
@@ -162,8 +206,13 @@ export class AudioEngine {
     const fade = ctx.createGain();
     const duck = ctx.createGain();
     fade.connect(duck).connect(this.master!);
+    let looped = this.loopBuffers.get(id);
+    if (!looped) {
+      looped = makeSeamlessLoop(ctx, buffer, LOOP_CROSSFADE_SECS);
+      this.loopBuffers.set(id, looped);
+    }
     const source = ctx.createBufferSource();
-    source.buffer = buffer;
+    source.buffer = looped;
     source.loop = true;
     source.connect(fade);
 
@@ -243,7 +292,7 @@ export class AudioEngine {
       src.connect(this.master!);
       src.onended = () => src.disconnect();
       src.start();
-      const gapMs = (buffer.duration + VOICE_GAP_SECS) * 1000;
+      const gapMs = (buffer.duration + voiceGapSecs()) * 1000;
       this.voiceTimers.push(window.setTimeout(() => void playNext(), gapMs));
     };
     void playNext();
