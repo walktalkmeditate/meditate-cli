@@ -68,6 +68,17 @@ export const shareCommand: Command = {
   summary: 'copy a link to this session',
   run: async (_args, ctx) => {
     const url = shareUrl(ctx.shareLink());
+    // On a phone, the native share sheet beats copying a URL into a terminal.
+    // Called before any await, so the tap's transient activation still applies.
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'meditate', text: 'a breath in your terminal', url });
+        return;
+      } catch (err) {
+        // The user dismissed the sheet — done; don't also copy behind their back.
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+      }
+    }
     try {
       await navigator.clipboard.writeText(url);
       ctx.status('link copied — share your breath');

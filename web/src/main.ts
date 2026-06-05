@@ -213,6 +213,7 @@ async function boot(): Promise<void> {
       { label: 'bell', command: 'bell' },
       { label: 'orb', command: 'graphics' },
       { label: 'help', command: 'help' },
+      { label: 'share', command: 'share' },
       { label: 'install', command: 'install' },
     ];
     chipBar = createChipBar(chips, (cmd) => {
@@ -221,6 +222,15 @@ async function boot(): Promise<void> {
       dispatch(cmd);
     });
     document.body.appendChild(chipBar);
+
+    // Tapping the terminal focuses it, so the on-screen keyboard opens and typed
+    // letters land in the prompt. We don't auto-focus on load (that would pop the
+    // keyboard unprompted); the chips sit outside #screen, so they don't trigger it.
+    screen.addEventListener('pointerdown', () => {
+      interact();
+      if (paging) dismissPage();
+      term.focus();
+    });
   }
 
   const refit = (): void => {
