@@ -4,6 +4,7 @@ import type { Command } from './types';
 // The canonical install commands — kept VERBATIM and identical to the README so
 // a copied line is trustworthy (anti-malware: what you see is what you run).
 const BREW = 'brew install walktalkmeditate/tap/meditate';
+const CARGO = 'cargo install meditate';
 const CURL =
   'curl -fsSL https://raw.githubusercontent.com/walktalkmeditate/meditate-cli/main/install.sh | sh';
 const PWSH =
@@ -15,6 +16,9 @@ function installPage(copied: boolean): string {
     '',
     dim('  macOS · Homebrew'),
     `    ${moss(BREW)}`,
+    '',
+    dim('  Cargo · crates.io'),
+    `    ${moss(CARGO)}`,
     '',
     dim('  macOS / Linux'),
     `    ${moss(CURL)}`,
