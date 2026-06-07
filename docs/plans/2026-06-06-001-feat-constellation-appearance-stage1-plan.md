@@ -1,7 +1,7 @@
 ---
 title: "feat: Constellation appearance — Stage 1 (depth + breath)"
 type: feat
-status: active
+status: completed
 date: 2026-06-06
 origin: docs/brainstorms/2026-06-06-constellation-appearance-requirements.md
 ---
