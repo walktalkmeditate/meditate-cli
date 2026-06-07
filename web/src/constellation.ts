@@ -99,7 +99,10 @@ export class Constellation {
   private readonly reduceMotion: boolean;
   private readonly reduceTransparency: boolean;
   private raf = 0;
-  private nextShootAt = 0; // seconds (perf clock)
+  private clock = 0; // accumulated, dt-clamped seconds — drives all animation
+  private lastT = -1; // last perf timestamp (s); -1 resets the dt clamp
+  private cosmicGradient: CanvasGradient | null = null; // cached; rebuilt on resize
+  private nextShootAt = 0; // seconds (clock)
   private shootStart = -1; // seconds, <0 = idle
   private shootLine: ShootingLine | null = null;
 
@@ -133,20 +136,28 @@ export class Constellation {
     this.canvas.style.width = `${this.w}px`;
     this.canvas.style.height = `${this.h}px`;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.cosmicGradient = null; // dimensions changed — rebuild on next paint
   }
 
   /** Run the backdrop's own rAF. `visible()` gates whether it shows and animates
    *  (constellation appearance selected and no page up). */
   start(visible: () => boolean): void {
+    cancelAnimationFrame(this.raf); // idempotent: never leak a prior loop
     const frame = (): void => {
       this.raf = requestAnimationFrame(frame);
-      if (document.hidden) return;
-      if (!visible()) {
+      if (document.hidden || !visible()) {
         if (this.canvas.style.display !== 'none') this.canvas.style.display = 'none';
+        this.lastT = -1; // reset so the next visible frame doesn't jump the field
         return;
       }
       if (this.canvas.style.display !== 'block') this.canvas.style.display = 'block';
-      this.paint(performance.now() / 1000);
+      // Accumulate a clamped clock so a tab returning from the background
+      // resumes the field smoothly rather than jumping (mirrors SmoothOrb).
+      const now = performance.now() / 1000;
+      const dt = this.lastT < 0 ? 1 / 60 : Math.min(0.064, now - this.lastT);
+      this.lastT = now;
+      this.clock += dt;
+      this.paint(this.clock);
     };
     this.raf = requestAnimationFrame(frame);
   }
@@ -176,14 +187,19 @@ export class Constellation {
 
   private paintCosmicGradient(): void {
     const ctx = this.ctx;
-    const cx = this.w / 2;
-    const cy = this.h / 2;
-    const r = Math.max(this.w, this.h) * 0.7;
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-    g.addColorStop(0, rgba(COSMIC_TINT, 0.55));
-    g.addColorStop(0.5, rgba(COSMIC_TINT, 0.18));
-    g.addColorStop(1, rgba(COSMIC_TINT, 0));
-    ctx.fillStyle = g;
+    // The gradient depends only on canvas size, so cache it and rebuild only
+    // on resize rather than allocating a CanvasGradient every frame.
+    if (!this.cosmicGradient) {
+      const cx = this.w / 2;
+      const cy = this.h / 2;
+      const r = Math.max(this.w, this.h) * 0.7;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      g.addColorStop(0, rgba(COSMIC_TINT, 0.55));
+      g.addColorStop(0.5, rgba(COSMIC_TINT, 0.18));
+      g.addColorStop(1, rgba(COSMIC_TINT, 0));
+      this.cosmicGradient = g;
+    }
+    ctx.fillStyle = this.cosmicGradient;
     ctx.fillRect(0, 0, this.w, this.h);
   }
 

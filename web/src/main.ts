@@ -10,7 +10,7 @@ import { PATTERNS } from './patterns';
 import { moss, dim } from './ansi';
 import { renderBoot } from './boot';
 import { buildRegistry, runCommand, patternStatus } from './commands';
-import type { CommandContext } from './commands';
+import type { CommandContext, AppearanceMode } from './commands';
 import { soundCommand, voiceCommand, bellCommand } from './commands/audio';
 import { streakCommand, shareCommand, exportCommand } from './commands/streak';
 import { AudioEngine } from './audio';
@@ -70,8 +70,17 @@ async function boot(): Promise<void> {
 
   // The constellation backdrop (behind the orb) shows when appearance is
   // 'constellation' — best seen with the smooth orb, where the terminal is clear.
-  let appearance = prefs.appearance ?? 'auto';
-  const constellation = new Constellation(screen);
+  // Validate the persisted value rather than trusting an arbitrary stored string.
+  let appearance: AppearanceMode =
+    prefs.appearance === 'constellation' ? 'constellation' : 'auto';
+  // Canvas 2D can be unavailable (private mode, locked-down sandboxes); a
+  // failure here must not take down the whole app — only the backdrop.
+  let constellation: Constellation | null = null;
+  try {
+    constellation = new Constellation(screen);
+  } catch (err) {
+    console.error('constellation backdrop unavailable', err);
+  }
 
   // The breathing browser tab lives in the icon (see favicon.ts).
   const favicon = new BreathingFavicon();
@@ -251,7 +260,7 @@ async function boot(): Promise<void> {
     screen.style.bottom = chipBar ? `${chipBar.offsetHeight}px` : '';
     fit.fit();
     smoothOrb.resize();
-    constellation.resize();
+    constellation?.resize();
   };
   refit();
   window.addEventListener('resize', refit);
@@ -274,7 +283,14 @@ async function boot(): Promise<void> {
 
   // The constellation backdrop shows whenever its appearance is selected and no
   // page is up (independent of the orb style — it reads best under the smooth orb).
-  constellation.start(() => appearance === 'constellation' && !paging);
+  constellation?.start(() => appearance === 'constellation' && !paging);
+
+  // Stop both rAF backdrops when the page is hidden or unloaded so they don't
+  // keep painting (and draining battery) after the tab is gone or bfcache-suspended.
+  window.addEventListener('pagehide', () => {
+    constellation?.stop();
+    smoothOrb.stop();
+  });
 
   // Earn a streak day: accrue active breathing time (visible + not paused) and
   // mark today once it crosses the minimum — mirrors src/streak.rs's threshold.

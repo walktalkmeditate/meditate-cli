@@ -30,6 +30,10 @@ const MILESTONE_FLASH_SECS: f32 = 1.5;
 /// A fixed seed keeps the constellation stable within a session, so a resize
 /// reflows the field rather than reshuffling it.
 const STARFIELD_SEED: u64 = 0x2026_0606;
+/// Clearing radius as a multiple of the orb's full-inhale body radius: stars
+/// stop just past the orb so the moss glow stays clear. The orb-wins check in
+/// `starfield::paint` handles the transient reach of voice rings and ripples.
+const CLEARING_MARGIN: f32 = 1.05;
 const CLOSING_PHRASES: [&str; 5] = [
     "Be at peace",
     "Stillness carries forward",
@@ -139,10 +143,7 @@ fn effective_appearance(cli: &Cli, config: &Config) -> palette::Appearance {
 /// reduce-motion so the field holds its static depth without animating.
 fn field_bloom(reduce_motion: bool, state: breath::PhaseState) -> starfield::Bloom {
     if reduce_motion {
-        starfield::Bloom {
-            gain: 0.0,
-            offset: 0.0,
-        }
+        starfield::Bloom::still()
     } else {
         starfield::bloom(state.phase, state.progress)
     }
@@ -953,7 +954,7 @@ impl Session {
                 // field off the orb; the orb-wins check in paint() handles the
                 // transient reach of voice rings and ripples.
                 let base = (cols.min(orb_rows * 2) as f32 / 2.0) * 0.92;
-                let stars = field.cells(cols, orb_rows * 2, base * 1.05);
+                let stars = field.cells(cols, orb_rows * 2, base * CLEARING_MARGIN);
                 let bloom = field_bloom(self.reduce_motion, state);
                 starfield::paint(&mut surface, &stars, bloom, self.palette.background);
             }

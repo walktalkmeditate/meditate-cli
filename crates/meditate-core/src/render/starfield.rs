@@ -29,6 +29,11 @@ const BLOOM_OFFSET: f32 = 1.5;
 /// Soft moss-white starlight; dim stars lerp from the background toward this.
 const STAR_COLOR: Rgb = Rgb::new(196, 214, 200);
 
+// The web backdrop (web/src/constellation.ts) is an independent Canvas-2D model
+// — three continuous parallax layers vs these two glyph tiers — tuned
+// separately. NEAR_FRACTION here and WARM_FRACTION there both equal 0.3 by
+// coincidence, not coupling. Stage 3 seasonal tinting must update both.
+
 /// A star in normalized space, fixed for the life of the field.
 struct NormStar {
     nx: f32,
@@ -56,6 +61,18 @@ pub struct Star {
 pub struct Bloom {
     pub gain: f32,
     pub offset: f32,
+}
+
+impl Bloom {
+    /// No bloom — the near tier holds its static brightness. Used under
+    /// reduce-motion. A single zero-state constructor so later stages that add
+    /// motion parameters have one place to define the still floor.
+    pub fn still() -> Bloom {
+        Bloom {
+            gain: 0.0,
+            offset: 0.0,
+        }
+    }
 }
 
 pub struct Starfield {
@@ -328,5 +345,27 @@ mod tests {
         assert!(Starfield::new(2).cells(20, 6, 5.0).is_empty());
         // A comfortably-sized terminal still yields a non-empty field.
         assert!(!Starfield::new(2).cells(60, 20, 8.0).is_empty());
+    }
+
+    #[test]
+    fn paint_blooms_near_star_outward_in_bounds() {
+        // Exercises the near-tier bloom offset branch: a near star left of center
+        // eases further outward, lands in-bounds, and places exactly one glyph.
+        let bg = Rgb::new(6, 8, 14);
+        let mut surface = Surface::new(40, 24, bg); // 40 cols x 12 cell rows, center ~(20, 6)
+        let stars = vec![Star {
+            x: 4,
+            cell_y: 2,
+            glyph: '✦',
+            brightness: 0.6,
+            near: true,
+        }];
+        paint(&mut surface, &stars, Bloom { gain: 0.3, offset: 1.5 }, bg);
+        let placed: Vec<(usize, usize)> = (0..40)
+            .flat_map(|x| (0..12).map(move |cy| (x, cy)))
+            .filter(|&(x, cy)| surface.glyph(x, cy).is_some())
+            .collect();
+        assert_eq!(placed.len(), 1, "exactly one in-bounds star glyph");
+        assert!(placed[0].0 <= 4, "near star eased outward (away from center)");
     }
 }

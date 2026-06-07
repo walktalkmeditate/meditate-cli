@@ -30,6 +30,8 @@ describe('constellation generation', () => {
       for (const n of nebulae) {
         expect(n.x).toBeGreaterThanOrEqual(0);
         expect(n.x).toBeLessThanOrEqual(1);
+        expect(n.y).toBeGreaterThanOrEqual(0);
+        expect(n.y).toBeLessThanOrEqual(1);
         expect(n.radius).toBeGreaterThan(0);
       }
     }

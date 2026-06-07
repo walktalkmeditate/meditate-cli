@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { PATTERNS, isPattern } from './patterns';
 import { parseLine } from './commands/types';
 import { buildRegistry, runCommand } from './commands';
-import type { CommandContext } from './commands';
+import type { CommandContext, AppearanceMode } from './commands';
 
 // Parity guard: the web parser must accept exactly the patterns the CLI accepts
 // (src/cli.rs PatternName -> as_str). If the CLI gains a pattern, this fails.
@@ -33,7 +33,7 @@ function makeContext() {
   };
   const calls = { page: vi.fn(), status: vi.fn(), setPattern: vi.fn(), setAppearance: vi.fn() };
   let current = 'calm';
-  let appearanceMode = 'auto';
+  let appearanceMode: AppearanceMode = 'auto';
   const registry = buildRegistry();
   const ctx: CommandContext = {
     // Only the methods the commands under test touch are real.
@@ -112,6 +112,15 @@ describe('runCommand dispatch', () => {
     expect(calls.setAppearance).toHaveBeenLastCalledWith('constellation');
     runCommand('sky auto', registry, ctx); // alias
     expect(calls.setAppearance).toHaveBeenLastCalledWith('auto');
+  });
+
+  it('rejects an unknown appearance arg without changing the setting', () => {
+    const { ctx, registry, calls } = makeContext();
+    runCommand('appearance dark', registry, ctx); // valid on the CLI, not the web
+    expect(calls.setAppearance).not.toHaveBeenCalled();
+    expect(calls.status).toHaveBeenCalledWith(
+      expect.stringContaining('auto | constellation'),
+    );
   });
 
   it('opens help as a page that lists visible commands', () => {

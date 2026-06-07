@@ -123,23 +123,28 @@ pub fn resolve_appearance(
 
 /// A fixed dark palette: steady moss on a deep neutral background, with no
 /// seasonal or time-of-day shift.
-pub fn dark() -> Palette {
-    Palette {
-        core: MOSS,
-        edge: scale_rgb(MOSS, 0.35),
-        background: Rgb::new(10, 12, 16),
-        ripple: lighten(MOSS, 0.3),
-    }
+fn dark() -> Palette {
+    fixed_palette(Rgb::new(10, 12, 16))
 }
 
 /// The Stage 1 constellation orb palette: moss on a deep-indigo background,
-/// matching Pilgrim iOS's Constellation canvas (`#0a0a12`). The starfield is
-/// added in later stages, where seasonal tinting arrives too.
-pub fn constellation() -> Palette {
+/// matching Pilgrim iOS's Constellation canvas. The starfield is added in later
+/// stages, where seasonal tinting arrives too.
+///
+/// The background `#0a0a12` must stay in sync with `BASE_BG` in
+/// `web/src/constellation.ts`.
+fn constellation() -> Palette {
+    fixed_palette(Rgb::new(10, 10, 18))
+}
+
+/// A fixed moss palette over `background`, with no season/time shift. Shared by
+/// `dark` and `constellation`; the two diverge once Stage 3 gives constellation
+/// its own seasonal tinting.
+fn fixed_palette(background: Rgb) -> Palette {
     Palette {
         core: MOSS,
         edge: scale_rgb(MOSS, 0.35),
-        background: Rgb::new(10, 10, 18),
+        background,
         ripple: lighten(MOSS, 0.3),
     }
 }

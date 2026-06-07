@@ -1,11 +1,11 @@
 import { PATTERNS, isPattern, PATTERN_LABELS } from '../patterns';
 import { renderMotd } from '../motd';
-import type { Command, CommandContext } from './types';
+import type { Command, CommandContext, AppearanceMode } from './types';
 import { parseLine } from './types';
 import { helpCommand, manCommand } from './help';
 import { installCommand, whichCommand, whoamiCommand } from './discovery';
 
-export type { Command, CommandContext } from './types';
+export type { Command, CommandContext, AppearanceMode } from './types';
 
 const pauseCommand: Command = {
   name: 'pause',
@@ -43,7 +43,7 @@ const appearanceCommand: Command = {
   summary: 'toggle the constellation backdrop',
   run: (args, ctx) => {
     const arg = args[0]?.toLowerCase();
-    let mode: string;
+    let mode: AppearanceMode;
     if (arg === 'auto' || arg === 'constellation') {
       mode = arg;
     } else if (arg === undefined) {
