@@ -403,6 +403,9 @@ struct Session {
     door_enabled: bool,
     palette: palette::Palette,
     starfield: Option<Starfield>,
+    /// Last drawn (cols, rows); a change clears the screen so a shrunk frame
+    /// leaves no stale star cells behind.
+    last_size: Option<(u16, u16)>,
     master: f32,
     muted: bool,
     focus: bool,
@@ -481,6 +484,7 @@ impl Session {
             door_enabled: config.door_enabled.unwrap_or(true) && !cli.no_door,
             palette,
             starfield: constellation.then(|| Starfield::new(STARFIELD_SEED)),
+            last_size: None,
             master,
             muted: false,
             focus: false,
@@ -898,7 +902,7 @@ impl Session {
 
     #[allow(clippy::too_many_arguments)] // render inputs for one frame
     fn draw(
-        &self,
+        &mut self,
         state: breath::PhaseState,
         ripples: &[f32],
         flash: f32,
@@ -911,6 +915,8 @@ impl Session {
         if cols == 0 || rows < 2 {
             return Ok(());
         }
+        let resized = self.last_size != Some((cols, rows));
+        self.last_size = Some((cols, rows));
         let (cols, orb_rows) = (cols as usize, rows as usize - 1);
         let scene = OrbScene {
             scale: orb::scale_for(state),
@@ -923,6 +929,11 @@ impl Session {
         };
 
         let mut stdout = io::stdout();
+        // On a resize, wipe the screen first so a shrunk constellation frame
+        // leaves no stranded star glyphs at the old edges.
+        if resized && self.starfield.is_some() {
+            queue!(stdout, Clear(ClearType::All))?;
+        }
         queue!(stdout, cursor::MoveTo(0, 0))?;
         if let Some(kitty) = &self.graphics {
             // Paint the orb into a small art grid, then block-upscale it: crisp,

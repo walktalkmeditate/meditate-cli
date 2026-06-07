@@ -11,6 +11,10 @@ use crate::render::{Rgb, Surface};
 /// area-scaled density is a deferred tuning concern.
 const STAR_COUNT: usize = 160;
 const NEAR_FRACTION: f32 = 0.3;
+/// Below this surface size the field is suppressed (plain dark) rather than
+/// drawing a few stranded stars in the corners of a tiny terminal.
+const MIN_FIELD_COLS: usize = 24;
+const MIN_FIELD_CELL_ROWS: usize = 6;
 /// Brightness bands per tier (disjoint, so near stars always read brighter).
 const NEAR_BRIGHT: (f32, f32) = (0.55, 0.95);
 const FAR_BRIGHT: (f32, f32) = (0.18, 0.45);
@@ -87,7 +91,7 @@ impl Starfield {
     /// orb so the moss glow stays clear.
     pub fn cells(&self, width: usize, height: usize, clearing_radius: f32) -> Vec<Star> {
         let cell_rows = height / 2;
-        if width == 0 || cell_rows == 0 {
+        if width < MIN_FIELD_COLS || cell_rows < MIN_FIELD_CELL_ROWS {
             return Vec::new();
         }
         let ocx = width as f32 / 2.0;
@@ -315,5 +319,14 @@ mod tests {
         let out = Mono.encode(&surface);
         assert!(!out.contains('\x1b')); // AE2: no color codes on the mono tier
         assert!(stars.iter().any(|s| out.contains(s.glyph))); // depth via glyph density
+    }
+
+    #[test]
+    fn small_terminal_suppresses_the_field() {
+        // AE8: below the minimum usable size, no field at all (plain dark), so a
+        // tiny terminal never shows a few stranded stars.
+        assert!(Starfield::new(2).cells(20, 6, 5.0).is_empty());
+        // A comfortably-sized terminal still yields a non-empty field.
+        assert!(!Starfield::new(2).cells(60, 20, 8.0).is_empty());
     }
 }
