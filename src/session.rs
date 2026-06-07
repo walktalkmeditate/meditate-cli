@@ -118,6 +118,19 @@ pub fn reduce_motion_enabled(flag: bool, config: &Config, env: &impl Env) -> boo
     flag || config.reduce_motion.unwrap_or(false) || Capabilities::detect(env).reduce_motion
 }
 
+/// Resolve the effective orb appearance: a `--appearance` flag wins, else the
+/// config value (an unrecognized string falls back to `Auto`), else `Auto`.
+fn effective_appearance(cli: &Cli, config: &Config) -> palette::Appearance {
+    if let Some(appearance) = cli.appearance {
+        return appearance.into();
+    }
+    config
+        .appearance
+        .as_deref()
+        .and_then(palette::Appearance::from_str_opt)
+        .unwrap_or(palette::Appearance::Auto)
+}
+
 /// Civil (year, month, day) from a count of days since the Unix epoch, via
 /// Howard Hinnant's algorithm. Used to pick the seasonal palette.
 pub fn ymd_from_unix_days(days: i64) -> (i64, u32, u32) {
@@ -410,7 +423,8 @@ impl Session {
         let env = SystemEnv;
         let caps = Capabilities::detect(&env);
         let (month, hour) = now_month_hour();
-        let palette = palette::resolve_with_pin(
+        let palette = palette::resolve_appearance(
+            effective_appearance(cli, config),
             season_for_month(month),
             time_for_hour(hour),
             cli.pin_palette.map(Into::into),
@@ -1131,6 +1145,42 @@ mod tests {
             ..Config::default()
         };
         assert!(title_enabled(&plain, &cfg));
+    }
+
+    #[test]
+    fn appearance_flag_overrides_config_else_falls_back_to_auto() {
+        use clap::Parser;
+        use meditate_core::palette::Appearance as Core;
+
+        let plain = Cli::try_parse_from(["meditate"]).unwrap();
+        assert_eq!(effective_appearance(&plain, &Config::default()), Core::Auto);
+
+        let dark_flag = Cli::try_parse_from(["meditate", "--appearance", "dark"]).unwrap();
+        assert_eq!(
+            effective_appearance(&dark_flag, &Config::default()),
+            Core::Dark
+        );
+
+        // The CLI flag wins over a config value.
+        let cfg_constellation = Config {
+            appearance: Some("constellation".to_string()),
+            ..Config::default()
+        };
+        assert_eq!(
+            effective_appearance(&dark_flag, &cfg_constellation),
+            Core::Dark
+        );
+        assert_eq!(
+            effective_appearance(&plain, &cfg_constellation),
+            Core::Constellation
+        );
+
+        // An unrecognized config value falls back to auto rather than erroring.
+        let cfg_bad = Config {
+            appearance: Some("nope".to_string()),
+            ..Config::default()
+        };
+        assert_eq!(effective_appearance(&plain, &cfg_bad), Core::Auto);
     }
 
     #[test]

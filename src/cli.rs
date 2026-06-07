@@ -26,6 +26,10 @@ pub struct Cli {
     #[arg(long, value_name = "WHEN")]
     pub pin_palette: Option<PalettePin>,
 
+    /// Choose the orb's appearance: auto (season/time), dark, or constellation.
+    #[arg(long, value_name = "MODE")]
+    pub appearance: Option<Appearance>,
+
     /// Slower, calmer motion (also honored via config or the REDUCE_MOTION env var).
     #[arg(long)]
     pub reduce_motion: bool,
@@ -97,6 +101,25 @@ impl From<PalettePin> for meditate_core::palette::Pin {
             PalettePin::Day => Pin::Day,
             PalettePin::Dusk => Pin::Dusk,
             PalettePin::Night => Pin::Night,
+        }
+    }
+}
+
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Appearance {
+    Auto,
+    Dark,
+    Constellation,
+}
+
+/// Bridge the clap-facing flag to the core's clap-free appearance enum.
+impl From<Appearance> for meditate_core::palette::Appearance {
+    fn from(appearance: Appearance) -> Self {
+        use meditate_core::palette::Appearance as Core;
+        match appearance {
+            Appearance::Auto => Core::Auto,
+            Appearance::Dark => Core::Dark,
+            Appearance::Constellation => Core::Constellation,
         }
     }
 }
