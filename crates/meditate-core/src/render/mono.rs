@@ -12,9 +12,15 @@ impl Renderer for Mono {
         let mut out = String::new();
         for cy in 0..rows {
             for x in 0..surface.width() {
-                let top = surface.get(x, cy * 2).luma();
-                let bottom = surface.get(x, cy * 2 + 1).luma();
-                out.push(ramp_char((top + bottom) / 2.0));
+                if let Some(g) = surface.glyph(x, cy) {
+                    // Mono carries depth by density: the glyph is presence; its
+                    // color is dropped, and no color codes are emitted.
+                    out.push(g.ch);
+                } else {
+                    let top = surface.get(x, cy * 2).luma();
+                    let bottom = surface.get(x, cy * 2 + 1).luma();
+                    out.push(ramp_char((top + bottom) / 2.0));
+                }
             }
             if cy + 1 < rows {
                 out.push_str("\r\n");

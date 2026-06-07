@@ -30,13 +30,25 @@ impl Rgb {
     }
 }
 
+/// A glyph painted into a terminal cell, overriding the half-block fill. `fg` is
+/// the glyph's color on the color tier; the mono tier ignores it and emits the
+/// glyph as presence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GlyphCell {
+    pub ch: char,
+    pub fg: Rgb,
+}
+
 /// A grid of RGB pixels the orb paints into. Two vertical pixels map to one
 /// terminal cell via the `▀` upper-half-block trick, so `height` should be even.
+/// An optional per-cell glyph layer (one entry per terminal cell, i.e.
+/// `width × height/2`) lets the starfield place characters over the half-blocks.
 #[derive(Clone, Debug)]
 pub struct Surface {
     width: usize,
     height: usize,
     pixels: Vec<Rgb>,
+    glyphs: Vec<Option<GlyphCell>>,
 }
 
 impl Surface {
@@ -45,6 +57,7 @@ impl Surface {
             width,
             height,
             pixels: vec![background; width * height],
+            glyphs: vec![None; width * (height / 2)],
         }
     }
 
@@ -75,6 +88,35 @@ impl Surface {
         if x < self.width && y < self.height {
             let under = self.get(x, y);
             self.set(x, y, Rgb::lerp(under, color, alpha));
+        }
+    }
+
+    /// Number of terminal cells tall (two pixel rows per cell).
+    fn cell_rows(&self) -> usize {
+        self.height / 2
+    }
+
+    /// Place a glyph in a cell (`cell_y` is in cell rows, not pixel rows),
+    /// overriding the half-block fill when the surface is encoded.
+    pub fn set_glyph(&mut self, x: usize, cell_y: usize, ch: char, fg: Rgb) {
+        if x < self.width && cell_y < self.cell_rows() {
+            self.glyphs[cell_y * self.width + x] = Some(GlyphCell { ch, fg });
+        }
+    }
+
+    /// Remove any glyph from a cell, so it renders as a normal half-block.
+    pub fn clear_glyph(&mut self, x: usize, cell_y: usize) {
+        if x < self.width && cell_y < self.cell_rows() {
+            self.glyphs[cell_y * self.width + x] = None;
+        }
+    }
+
+    /// The glyph in a cell, if any.
+    pub fn glyph(&self, x: usize, cell_y: usize) -> Option<GlyphCell> {
+        if x < self.width && cell_y < self.cell_rows() {
+            self.glyphs[cell_y * self.width + x]
+        } else {
+            None
         }
     }
 }
@@ -127,4 +169,53 @@ pub(crate) fn to_ansi256(c: Rgb) -> u8 {
     };
     let (r, g, b) = (component(c.r), component(c.g), component(c.b));
     16 + 36 * r + 6 * g + b
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::caps::ColorDepth;
+
+    #[test]
+    fn glyph_layer_is_noop_when_unset() {
+        // AE6: with no glyphs set, both encoders behave as the half-block path.
+        let mut s = Surface::new(2, 2, Rgb::new(10, 12, 16));
+        s.set(0, 0, Rgb::new(96, 138, 102));
+        let cg = cell_gradient::CellGradient::new(ColorDepth::Truecolor).encode(&s);
+        assert!(cg.contains('▀'));
+        assert!(!cg.contains('✦'));
+        let mono = mono::Mono.encode(&s);
+        assert!(!mono.contains('\x1b'));
+    }
+
+    #[test]
+    fn cell_gradient_emits_glyph_in_fg_over_bottom_bg() {
+        let mut s = Surface::new(1, 2, Rgb::new(6, 8, 14));
+        s.set_glyph(0, 0, '✦', Rgb::new(200, 220, 200));
+        let out = cell_gradient::CellGradient::new(ColorDepth::Truecolor).encode(&s);
+        assert!(out.contains('✦'));
+        assert!(!out.contains('▀'));
+        assert!(out.contains("\x1b[38;2;200;220;200m")); // glyph fg
+        assert!(out.contains("\x1b[48;2;6;8;14m")); // deep-space bottom bg
+    }
+
+    #[test]
+    fn mono_emits_glyph_as_presence_without_color() {
+        let mut s = Surface::new(1, 2, Rgb::BLACK);
+        s.set_glyph(0, 0, '·', Rgb::new(200, 200, 200));
+        let out = mono::Mono.encode(&s);
+        assert!(out.contains('·'));
+        assert!(!out.contains('\x1b'));
+    }
+
+    #[test]
+    fn set_glyph_ignores_out_of_bounds_and_clear_works() {
+        let mut s = Surface::new(2, 2, Rgb::BLACK);
+        s.set_glyph(9, 9, '✦', Rgb::BLACK);
+        assert_eq!(s.glyph(9, 9), None);
+        s.set_glyph(0, 0, '✦', Rgb::BLACK);
+        assert!(s.glyph(0, 0).is_some());
+        s.clear_glyph(0, 0);
+        assert_eq!(s.glyph(0, 0), None);
+    }
 }
