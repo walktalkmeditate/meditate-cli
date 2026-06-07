@@ -360,12 +360,23 @@ mod tests {
             brightness: 0.6,
             near: true,
         }];
-        paint(&mut surface, &stars, Bloom { gain: 0.3, offset: 1.5 }, bg);
+        paint(
+            &mut surface,
+            &stars,
+            Bloom {
+                gain: 0.3,
+                offset: 1.5,
+            },
+            bg,
+        );
         let placed: Vec<(usize, usize)> = (0..40)
             .flat_map(|x| (0..12).map(move |cy| (x, cy)))
             .filter(|&(x, cy)| surface.glyph(x, cy).is_some())
             .collect();
         assert_eq!(placed.len(), 1, "exactly one in-bounds star glyph");
-        assert!(placed[0].0 <= 4, "near star eased outward (away from center)");
+        assert!(
+            placed[0].0 <= 4,
+            "near star eased outward (away from center)"
+        );
     }
 }
