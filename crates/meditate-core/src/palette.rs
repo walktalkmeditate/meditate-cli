@@ -132,13 +132,14 @@ pub fn dark() -> Palette {
     }
 }
 
-/// The Stage 1 constellation orb palette: moss on a deep-space background. The
-/// starfield is added in later stages, where seasonal tinting arrives too.
+/// The Stage 1 constellation orb palette: moss on a deep-indigo background,
+/// matching Pilgrim iOS's Constellation canvas (`#0a0a12`). The starfield is
+/// added in later stages, where seasonal tinting arrives too.
 pub fn constellation() -> Palette {
     Palette {
         core: MOSS,
         edge: scale_rgb(MOSS, 0.35),
-        background: Rgb::new(6, 8, 14),
+        background: Rgb::new(10, 10, 18),
         ripple: lighten(MOSS, 0.3),
     }
 }
