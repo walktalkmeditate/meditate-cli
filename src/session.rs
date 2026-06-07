@@ -10,6 +10,7 @@ use crate::palette::{self, season_for_month, time_for_hour};
 use crate::paths;
 use crate::render::graphics::{self, ImageRenderer};
 use crate::render::orb::{self, OrbScene};
+use crate::render::starfield::{self, Starfield};
 use crate::render::{renderer_for, Surface};
 use crate::state::State;
 use crate::streak;
@@ -26,6 +27,9 @@ use std::time::{Duration, Instant};
 
 const RIPPLE_TTL: f32 = 3.0;
 const MILESTONE_FLASH_SECS: f32 = 1.5;
+/// A fixed seed keeps the constellation stable within a session, so a resize
+/// reflows the field rather than reshuffling it.
+const STARFIELD_SEED: u64 = 0x2026_0606;
 const CLOSING_PHRASES: [&str; 5] = [
     "Be at peace",
     "Stillness carries forward",
@@ -385,6 +389,7 @@ struct Session {
     reduce_motion: bool,
     door_enabled: bool,
     palette: palette::Palette,
+    starfield: Option<Starfield>,
     master: f32,
     muted: bool,
     focus: bool,
@@ -423,12 +428,14 @@ impl Session {
         let env = SystemEnv;
         let caps = Capabilities::detect(&env);
         let (month, hour) = now_month_hour();
+        let appearance = effective_appearance(cli, config);
         let palette = palette::resolve_appearance(
-            effective_appearance(cli, config),
+            appearance,
             season_for_month(month),
             time_for_hour(hour),
             cli.pin_palette.map(Into::into),
         );
+        let constellation = appearance == palette::Appearance::Constellation;
         let pattern_name =
             crate::resolve_start_pattern(cli.pattern.map(|p| p.as_str()), config, state)
                 .unwrap_or_else(|| "calm".to_string());
@@ -438,15 +445,18 @@ impl Session {
         let master = f32::from(config.master_volume.or(state.master_volume).unwrap_or(80)) / 100.0;
         audio.set_master(master);
 
-        let graphics: Option<Box<dyn ImageRenderer>> = if use_graphics(cli, config, &caps, &env) {
-            match caps.graphics {
-                GraphicsProtocol::Kitty => Some(Box::new(graphics::KittyRenderer::new())),
-                GraphicsProtocol::ITerm2 => Some(Box::new(graphics::ITerm2Renderer::new())),
-                GraphicsProtocol::None => None,
-            }
-        } else {
-            None
-        };
+        // Constellation forces the half-block path: glyph star cells cannot be
+        // carried through the pixelated inline-graphics image.
+        let graphics: Option<Box<dyn ImageRenderer>> =
+            if !constellation && use_graphics(cli, config, &caps, &env) {
+                match caps.graphics {
+                    GraphicsProtocol::Kitty => Some(Box::new(graphics::KittyRenderer::new())),
+                    GraphicsProtocol::ITerm2 => Some(Box::new(graphics::ITerm2Renderer::new())),
+                    GraphicsProtocol::None => None,
+                }
+            } else {
+                None
+            };
 
         let mut session = Session {
             breath: Breath::new(breath::pattern_by_name(&pattern_name), Duration::ZERO),
@@ -457,6 +467,7 @@ impl Session {
             reduce_motion: reduce_motion_enabled(cli.reduce_motion, config, &env),
             door_enabled: config.door_enabled.unwrap_or(true) && !cli.no_door,
             palette,
+            starfield: constellation.then(|| Starfield::new(STARFIELD_SEED)),
             master,
             muted: false,
             focus: false,
@@ -913,6 +924,15 @@ impl Session {
         } else {
             let mut surface = Surface::new(cols, orb_rows * 2, self.palette.background);
             orb::paint(&mut surface, &scene);
+            if let Some(field) = &self.starfield {
+                // Clearing just past the full-inhale orb body keeps the steady
+                // field off the orb; the orb-wins check in paint() handles the
+                // transient reach of voice rings and ripples.
+                let base = (cols.min(orb_rows * 2) as f32 / 2.0) * 0.92;
+                let stars = field.cells(cols, orb_rows * 2, base * 1.05);
+                let bloom = starfield::bloom(state.phase, state.progress);
+                starfield::paint(&mut surface, &stars, bloom, self.palette.background);
+            }
             stdout.write_all(self.renderer.encode(&surface).as_bytes())?;
         }
 

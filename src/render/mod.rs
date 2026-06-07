@@ -5,7 +5,7 @@
 //! native in [`graphics`].
 
 pub use meditate_core::render::{
-    cell_gradient, mono, orb, renderer_for, Renderer, Rgb, Surface, Tier,
+    cell_gradient, mono, orb, renderer_for, starfield, Renderer, Rgb, Surface, Tier,
 };
 
 pub mod graphics;

@@ -5,6 +5,7 @@
 //! to color or to mono presence is the render layer's job.
 
 use crate::breath::Phase;
+use crate::render::{Rgb, Surface};
 
 /// Fixed pool of stars. Density emerges from projecting these onto a surface;
 /// area-scaled density is a deferred tuning concern.
@@ -20,6 +21,9 @@ const FAR_GLYPHS: [char; 3] = ['·', '⋆', '∙'];
 /// the exhale peak. Tunable.
 const BLOOM_GAIN: f32 = 0.4;
 const BLOOM_OFFSET: f32 = 1.5;
+
+/// Soft moss-white starlight; dim stars lerp from the background toward this.
+const STAR_COLOR: Rgb = Rgb::new(196, 214, 200);
 
 /// A star in normalized space, fixed for the life of the field.
 struct NormStar {
@@ -127,6 +131,48 @@ pub fn bloom(phase: Phase, progress: f32) -> Bloom {
     }
 }
 
+/// Write the projected stars into the surface's glyph layer. The orb wins: a
+/// star is dropped wherever the orb has already painted a non-background pixel
+/// (glyph-erase on collision), so the moss glow is never pierced. Near stars
+/// take the bloom's brightness gain and ease outward by its offset.
+pub fn paint(surface: &mut Surface, stars: &[Star], bloom: Bloom, background: Rgb) {
+    let width = surface.width();
+    let cell_rows = surface.height() / 2;
+    if width == 0 || cell_rows == 0 {
+        return;
+    }
+    let ccx = width as f32 / 2.0;
+    let ccy = cell_rows as f32 / 2.0;
+    for star in stars {
+        let (mut x, mut cy) = (star.x, star.cell_y);
+        let mut brightness = star.brightness;
+        if star.near {
+            brightness = (brightness + bloom.gain).min(1.0);
+            if bloom.offset > 0.0 {
+                let dx = x as f32 + 0.5 - ccx;
+                let dy = cy as f32 + 0.5 - ccy;
+                let len = (dx * dx + dy * dy).sqrt().max(0.001);
+                let ox = (x as f32 + 0.5 + dx / len * bloom.offset).floor();
+                let oy = (cy as f32 + 0.5 + dy / len * bloom.offset).floor();
+                if ox >= 0.0 && oy >= 0.0 && (ox as usize) < width && (oy as usize) < cell_rows {
+                    x = ox as usize;
+                    cy = oy as usize;
+                }
+            }
+        }
+        // Orb wins: skip any cell the orb has already painted into.
+        if surface.get(x, cy * 2) != background || surface.get(x, cy * 2 + 1) != background {
+            continue;
+        }
+        surface.set_glyph(
+            x,
+            cy,
+            star.glyph,
+            Rgb::lerp(background, STAR_COLOR, brightness),
+        );
+    }
+}
+
 /// SplitMix64 → a deterministic float in `[0, 1)`. Keeps the field reproducible
 /// without an RNG dependency (the core stays dependency-free).
 fn unit(state: &mut u64) -> f32 {
@@ -213,5 +259,39 @@ mod tests {
         assert_eq!(bloom(Phase::Still, 0.5).gain, 0.0);
         assert!(bloom(Phase::Exhale, 1.0).gain <= BLOOM_GAIN);
         assert!(bloom(Phase::Exhale, 1.0).offset <= BLOOM_OFFSET);
+    }
+
+    #[test]
+    fn paint_drops_stars_on_orb_cells_and_places_them_elsewhere() {
+        let bg = Rgb::new(6, 8, 14);
+        let mut surface = Surface::new(4, 4, bg); // 4 cols × 2 cell rows
+        surface.set(1, 0, Rgb::new(96, 138, 102)); // orb pixel in cell (1, 0)
+        let stars = vec![
+            Star {
+                x: 1,
+                cell_y: 0,
+                glyph: '✦',
+                brightness: 0.9,
+                near: false,
+            },
+            Star {
+                x: 3,
+                cell_y: 1,
+                glyph: '·',
+                brightness: 0.3,
+                near: false,
+            },
+        ];
+        paint(
+            &mut surface,
+            &stars,
+            Bloom {
+                gain: 0.0,
+                offset: 0.0,
+            },
+            bg,
+        );
+        assert_eq!(surface.glyph(1, 0), None); // orb wins
+        assert!(surface.glyph(3, 1).is_some()); // clear cell gets the star
     }
 }
