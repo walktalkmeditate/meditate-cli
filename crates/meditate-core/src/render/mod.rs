@@ -1,6 +1,7 @@
 pub mod cell_gradient;
 pub mod mono;
 pub mod orb;
+pub mod starfield;
 
 use crate::caps::{Capabilities, ColorDepth};
 
