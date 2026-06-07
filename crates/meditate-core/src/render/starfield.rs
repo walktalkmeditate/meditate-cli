@@ -294,4 +294,26 @@ mod tests {
         assert_eq!(surface.glyph(1, 0), None); // orb wins
         assert!(surface.glyph(3, 1).is_some()); // clear cell gets the star
     }
+
+    #[test]
+    fn mono_renders_field_as_glyphs_without_color() {
+        use crate::render::mono::Mono;
+        use crate::render::Renderer;
+        let bg = Rgb::new(6, 8, 14);
+        let field = Starfield::new(7);
+        let mut surface = Surface::new(80, 24, bg);
+        let stars = field.cells(80, 24, 0.0);
+        paint(
+            &mut surface,
+            &stars,
+            Bloom {
+                gain: 0.0,
+                offset: 0.0,
+            },
+            bg,
+        );
+        let out = Mono.encode(&surface);
+        assert!(!out.contains('\x1b')); // AE2: no color codes on the mono tier
+        assert!(stars.iter().any(|s| out.contains(s.glyph))); // depth via glyph density
+    }
 }

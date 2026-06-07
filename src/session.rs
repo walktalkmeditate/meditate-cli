@@ -135,6 +135,19 @@ fn effective_appearance(cli: &Cli, config: &Config) -> palette::Appearance {
         .unwrap_or(palette::Appearance::Auto)
 }
 
+/// The breath bloom for the constellation's near tier, damped to nothing under
+/// reduce-motion so the field holds its static depth without animating.
+fn field_bloom(reduce_motion: bool, state: breath::PhaseState) -> starfield::Bloom {
+    if reduce_motion {
+        starfield::Bloom {
+            gain: 0.0,
+            offset: 0.0,
+        }
+    } else {
+        starfield::bloom(state.phase, state.progress)
+    }
+}
+
 /// Civil (year, month, day) from a count of days since the Unix epoch, via
 /// Howard Hinnant's algorithm. Used to pick the seasonal palette.
 pub fn ymd_from_unix_days(days: i64) -> (i64, u32, u32) {
@@ -930,7 +943,7 @@ impl Session {
                 // transient reach of voice rings and ripples.
                 let base = (cols.min(orb_rows * 2) as f32 / 2.0) * 0.92;
                 let stars = field.cells(cols, orb_rows * 2, base * 1.05);
-                let bloom = starfield::bloom(state.phase, state.progress);
+                let bloom = field_bloom(self.reduce_motion, state);
                 starfield::paint(&mut surface, &stars, bloom, self.palette.background);
             }
             stdout.write_all(self.renderer.encode(&surface).as_bytes())?;
@@ -1201,6 +1214,19 @@ mod tests {
             ..Config::default()
         };
         assert_eq!(effective_appearance(&plain, &cfg_bad), Core::Auto);
+    }
+
+    #[test]
+    fn reduce_motion_damps_the_constellation_bloom() {
+        let state = breath::PhaseState {
+            phase: breath::Phase::Exhale,
+            progress: 1.0,
+            breath_count: 0,
+        };
+        let calm = field_bloom(true, state);
+        assert_eq!(calm.gain, 0.0);
+        assert_eq!(calm.offset, 0.0);
+        assert!(field_bloom(false, state).gain > 0.0);
     }
 
     #[test]
