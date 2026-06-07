@@ -4,6 +4,7 @@ import { createTerminal } from './terminal';
 import { startBreathing } from './loop';
 import { BreathingFavicon } from './favicon';
 import { SmoothOrb } from './orb-canvas';
+import { Constellation } from './constellation';
 import { Repl } from './repl';
 import { PATTERNS } from './patterns';
 import { moss, dim } from './ansi';
@@ -66,6 +67,11 @@ async function boot(): Promise<void> {
   // The smooth orb (a Canvas-2D overlay) runs its own loop; `graphics` toggles it.
   let smoothMode = prefs.graphics ?? false;
   const smoothOrb = new SmoothOrb(screen);
+
+  // The constellation backdrop (behind the orb) shows when appearance is
+  // 'constellation' — best seen with the smooth orb, where the terminal is clear.
+  let appearance = prefs.appearance ?? 'auto';
+  const constellation = new Constellation(screen);
 
   // The breathing browser tab lives in the icon (see favicon.ts).
   const favicon = new BreathingFavicon();
@@ -144,6 +150,11 @@ async function boot(): Promise<void> {
       smoothMode = smooth;
       store.setPref('graphics', smooth);
     },
+    appearance: () => appearance,
+    setAppearance: (mode) => {
+      appearance = mode;
+      store.setPref('appearance', mode);
+    },
     setSound: (id) => {
       currentSound = id;
       pendingSound = null;
@@ -212,6 +223,7 @@ async function boot(): Promise<void> {
       { label: 'voice', command: 'voice' },
       { label: 'bell', command: 'bell' },
       { label: 'orb', command: 'graphics' },
+      { label: 'sky', command: 'appearance' },
       { label: 'help', command: 'help' },
       { label: 'share', command: 'share' },
       { label: 'install', command: 'install' },
@@ -239,6 +251,7 @@ async function boot(): Promise<void> {
     screen.style.bottom = chipBar ? `${chipBar.offsetHeight}px` : '';
     fit.fit();
     smoothOrb.resize();
+    constellation.resize();
   };
   refit();
   window.addEventListener('resize', refit);
@@ -258,6 +271,10 @@ async function boot(): Promise<void> {
 
   // The smooth orb draws only when in graphics mode and no page is up.
   smoothOrb.start(session, () => smoothMode && !paging, () => audio.isVoiceSpeaking());
+
+  // The constellation backdrop shows whenever its appearance is selected and no
+  // page is up (independent of the orb style — it reads best under the smooth orb).
+  constellation.start(() => appearance === 'constellation' && !paging);
 
   // Earn a streak day: accrue active breathing time (visible + not paused) and
   // mark today once it crosses the minimum — mirrors src/streak.rs's threshold.

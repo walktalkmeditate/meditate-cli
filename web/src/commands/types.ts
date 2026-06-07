@@ -22,6 +22,9 @@ export interface CommandContext {
   /** Whether the smooth Canvas-2D orb is showing (vs the half-block orb). */
   graphicsMode: () => boolean;
   setGraphics: (smooth: boolean) => void;
+  /** The active appearance backdrop: 'auto' (none) or 'constellation'. */
+  appearance: () => string;
+  setAppearance: (mode: string) => void;
   /** Track the active soundscape (for the share link + persistence). */
   setSound: (id: string | null) => void;
   /** The current session config, for building a share link. */

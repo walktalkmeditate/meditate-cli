@@ -37,6 +37,30 @@ const graphicsCommand: Command = {
   },
 };
 
+const appearanceCommand: Command = {
+  name: 'appearance',
+  aliases: ['sky', 'theme'],
+  summary: 'toggle the constellation backdrop',
+  run: (args, ctx) => {
+    const arg = args[0]?.toLowerCase();
+    let mode: string;
+    if (arg === 'auto' || arg === 'constellation') {
+      mode = arg;
+    } else if (arg === undefined) {
+      mode = ctx.appearance() === 'constellation' ? 'auto' : 'constellation';
+    } else {
+      ctx.status('appearance: auto | constellation');
+      return;
+    }
+    ctx.setAppearance(mode);
+    ctx.status(
+      mode === 'constellation'
+        ? 'appearance: constellation (smooth orb shows it best)'
+        : 'appearance: auto',
+    );
+  },
+};
+
 function cyclePattern(ctx: CommandContext, dir: number): void {
   const i = PATTERNS.indexOf(ctx.currentPattern() as (typeof PATTERNS)[number]);
   const next = PATTERNS[(((i < 0 ? 0 : i) + dir) % PATTERNS.length + PATTERNS.length) % PATTERNS.length];
@@ -75,6 +99,7 @@ export function buildRegistry(extra: Command[] = []): Registry {
     prevCommand,
     ...extra,
     graphicsCommand,
+    appearanceCommand,
     clearCommand,
     helpCommand,
     manCommand,
