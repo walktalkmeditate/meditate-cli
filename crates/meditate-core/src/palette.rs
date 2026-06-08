@@ -129,11 +129,13 @@ fn dark() -> Palette {
 
 /// The Stage 1 constellation orb palette: moss on a deep-indigo background,
 /// matching Pilgrim iOS's Constellation canvas. The starfield is added in later
-/// stages, where seasonal tinting arrives too.
+/// stages, where seasonal tinting arrives too. Public so the WASM facade can
+/// switch the web orb to it (the indigo background matches the canvas cosmos, so
+/// the orb's soft edge reads as glow rather than a dark fringe).
 ///
 /// The background `#0a0a12` must stay in sync with `BASE_BG` in
 /// `web/src/constellation.ts`.
-fn constellation() -> Palette {
+pub fn constellation() -> Palette {
     fixed_palette(Rgb::new(10, 10, 18))
 }
 
