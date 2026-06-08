@@ -59,11 +59,19 @@ impl Renderer for CellGradient {
         let mut out = String::new();
         for cy in 0..rows {
             for x in 0..surface.width() {
-                let top = surface.get(x, cy * 2);
                 let bottom = surface.get(x, cy * 2 + 1);
-                out.push_str(&self.fg(top));
-                out.push_str(&self.bg(bottom));
-                out.push('▀');
+                if let Some(g) = surface.glyph(x, cy) {
+                    // A star glyph: its own foreground over the deep-space
+                    // background (the bottom pixel), in place of the half-block.
+                    out.push_str(&self.fg(g.fg));
+                    out.push_str(&self.bg(bottom));
+                    out.push(g.ch);
+                } else {
+                    let top = surface.get(x, cy * 2);
+                    out.push_str(&self.fg(top));
+                    out.push_str(&self.bg(bottom));
+                    out.push('▀');
+                }
             }
             out.push_str(RESET);
             if cy + 1 < rows {

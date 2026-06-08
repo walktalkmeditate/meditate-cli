@@ -10,6 +10,7 @@ use crate::palette::{self, season_for_month, time_for_hour};
 use crate::paths;
 use crate::render::graphics::{self, ImageRenderer};
 use crate::render::orb::{self, OrbScene};
+use crate::render::starfield::{self, Starfield};
 use crate::render::{renderer_for, Surface};
 use crate::state::State;
 use crate::streak;
@@ -26,6 +27,13 @@ use std::time::{Duration, Instant};
 
 const RIPPLE_TTL: f32 = 3.0;
 const MILESTONE_FLASH_SECS: f32 = 1.5;
+/// A fixed seed keeps the constellation stable within a session, so a resize
+/// reflows the field rather than reshuffling it.
+const STARFIELD_SEED: u64 = 0x2026_0606;
+/// Clearing radius as a multiple of the orb's full-inhale body radius: stars
+/// stop just past the orb so the moss glow stays clear. The orb-wins check in
+/// `starfield::paint` handles the transient reach of voice rings and ripples.
+const CLEARING_MARGIN: f32 = 1.05;
 const CLOSING_PHRASES: [&str; 5] = [
     "Be at peace",
     "Stillness carries forward",
@@ -116,6 +124,29 @@ impl MilestoneTracker {
 
 pub fn reduce_motion_enabled(flag: bool, config: &Config, env: &impl Env) -> bool {
     flag || config.reduce_motion.unwrap_or(false) || Capabilities::detect(env).reduce_motion
+}
+
+/// Resolve the effective orb appearance: a `--appearance` flag wins, else the
+/// config value (an unrecognized string falls back to `Auto`), else `Auto`.
+fn effective_appearance(cli: &Cli, config: &Config) -> palette::Appearance {
+    if let Some(appearance) = cli.appearance {
+        return appearance.into();
+    }
+    config
+        .appearance
+        .as_deref()
+        .and_then(palette::Appearance::from_str_opt)
+        .unwrap_or(palette::Appearance::Auto)
+}
+
+/// The breath bloom for the constellation's near tier, damped to nothing under
+/// reduce-motion so the field holds its static depth without animating.
+fn field_bloom(reduce_motion: bool, state: breath::PhaseState) -> starfield::Bloom {
+    if reduce_motion {
+        starfield::Bloom::still()
+    } else {
+        starfield::bloom(state.phase, state.progress)
+    }
 }
 
 /// Civil (year, month, day) from a count of days since the Unix epoch, via
@@ -372,6 +403,10 @@ struct Session {
     reduce_motion: bool,
     door_enabled: bool,
     palette: palette::Palette,
+    starfield: Option<Starfield>,
+    /// Last drawn (cols, rows); a change clears the screen so a shrunk frame
+    /// leaves no stale star cells behind.
+    last_size: Option<(u16, u16)>,
     master: f32,
     muted: bool,
     focus: bool,
@@ -410,11 +445,14 @@ impl Session {
         let env = SystemEnv;
         let caps = Capabilities::detect(&env);
         let (month, hour) = now_month_hour();
-        let palette = palette::resolve_with_pin(
+        let appearance = effective_appearance(cli, config);
+        let palette = palette::resolve_appearance(
+            appearance,
             season_for_month(month),
             time_for_hour(hour),
             cli.pin_palette.map(Into::into),
         );
+        let constellation = appearance == palette::Appearance::Constellation;
         let pattern_name =
             crate::resolve_start_pattern(cli.pattern.map(|p| p.as_str()), config, state)
                 .unwrap_or_else(|| "calm".to_string());
@@ -424,15 +462,18 @@ impl Session {
         let master = f32::from(config.master_volume.or(state.master_volume).unwrap_or(80)) / 100.0;
         audio.set_master(master);
 
-        let graphics: Option<Box<dyn ImageRenderer>> = if use_graphics(cli, config, &caps, &env) {
-            match caps.graphics {
-                GraphicsProtocol::Kitty => Some(Box::new(graphics::KittyRenderer::new())),
-                GraphicsProtocol::ITerm2 => Some(Box::new(graphics::ITerm2Renderer::new())),
-                GraphicsProtocol::None => None,
-            }
-        } else {
-            None
-        };
+        // Constellation forces the half-block path: glyph star cells cannot be
+        // carried through the pixelated inline-graphics image.
+        let graphics: Option<Box<dyn ImageRenderer>> =
+            if !constellation && use_graphics(cli, config, &caps, &env) {
+                match caps.graphics {
+                    GraphicsProtocol::Kitty => Some(Box::new(graphics::KittyRenderer::new())),
+                    GraphicsProtocol::ITerm2 => Some(Box::new(graphics::ITerm2Renderer::new())),
+                    GraphicsProtocol::None => None,
+                }
+            } else {
+                None
+            };
 
         let mut session = Session {
             breath: Breath::new(breath::pattern_by_name(&pattern_name), Duration::ZERO),
@@ -443,6 +484,8 @@ impl Session {
             reduce_motion: reduce_motion_enabled(cli.reduce_motion, config, &env),
             door_enabled: config.door_enabled.unwrap_or(true) && !cli.no_door,
             palette,
+            starfield: constellation.then(|| Starfield::new(STARFIELD_SEED)),
+            last_size: None,
             master,
             muted: false,
             focus: false,
@@ -860,7 +903,7 @@ impl Session {
 
     #[allow(clippy::too_many_arguments)] // render inputs for one frame
     fn draw(
-        &self,
+        &mut self,
         state: breath::PhaseState,
         ripples: &[f32],
         flash: f32,
@@ -873,6 +916,8 @@ impl Session {
         if cols == 0 || rows < 2 {
             return Ok(());
         }
+        let resized = self.last_size != Some((cols, rows));
+        self.last_size = Some((cols, rows));
         let (cols, orb_rows) = (cols as usize, rows as usize - 1);
         let scene = OrbScene {
             scale: orb::scale_for(state),
@@ -885,6 +930,11 @@ impl Session {
         };
 
         let mut stdout = io::stdout();
+        // On a resize, wipe the screen first so a shrunk constellation frame
+        // leaves no stranded star glyphs at the old edges.
+        if resized && self.starfield.is_some() {
+            queue!(stdout, Clear(ClearType::All))?;
+        }
         queue!(stdout, cursor::MoveTo(0, 0))?;
         if let Some(kitty) = &self.graphics {
             // Paint the orb into a small art grid, then block-upscale it: crisp,
@@ -899,6 +949,15 @@ impl Session {
         } else {
             let mut surface = Surface::new(cols, orb_rows * 2, self.palette.background);
             orb::paint(&mut surface, &scene);
+            if let Some(field) = &self.starfield {
+                // Clearing just past the full-inhale orb body keeps the steady
+                // field off the orb; the orb-wins check in paint() handles the
+                // transient reach of voice rings and ripples.
+                let base = (cols.min(orb_rows * 2) as f32 / 2.0) * 0.92;
+                let stars = field.cells(cols, orb_rows * 2, base * CLEARING_MARGIN);
+                let bloom = field_bloom(self.reduce_motion, state);
+                starfield::paint(&mut surface, &stars, bloom, self.palette.background);
+            }
             stdout.write_all(self.renderer.encode(&surface).as_bytes())?;
         }
 
@@ -1131,6 +1190,55 @@ mod tests {
             ..Config::default()
         };
         assert!(title_enabled(&plain, &cfg));
+    }
+
+    #[test]
+    fn appearance_flag_overrides_config_else_falls_back_to_auto() {
+        use clap::Parser;
+        use meditate_core::palette::Appearance as Core;
+
+        let plain = Cli::try_parse_from(["meditate"]).unwrap();
+        assert_eq!(effective_appearance(&plain, &Config::default()), Core::Auto);
+
+        let dark_flag = Cli::try_parse_from(["meditate", "--appearance", "dark"]).unwrap();
+        assert_eq!(
+            effective_appearance(&dark_flag, &Config::default()),
+            Core::Dark
+        );
+
+        // The CLI flag wins over a config value.
+        let cfg_constellation = Config {
+            appearance: Some("constellation".to_string()),
+            ..Config::default()
+        };
+        assert_eq!(
+            effective_appearance(&dark_flag, &cfg_constellation),
+            Core::Dark
+        );
+        assert_eq!(
+            effective_appearance(&plain, &cfg_constellation),
+            Core::Constellation
+        );
+
+        // An unrecognized config value falls back to auto rather than erroring.
+        let cfg_bad = Config {
+            appearance: Some("nope".to_string()),
+            ..Config::default()
+        };
+        assert_eq!(effective_appearance(&plain, &cfg_bad), Core::Auto);
+    }
+
+    #[test]
+    fn reduce_motion_damps_the_constellation_bloom() {
+        let state = breath::PhaseState {
+            phase: breath::Phase::Exhale,
+            progress: 1.0,
+            breath_count: 0,
+        };
+        let calm = field_bloom(true, state);
+        assert_eq!(calm.gain, 0.0);
+        assert_eq!(calm.offset, 0.0);
+        assert!(field_bloom(false, state).gain > 0.0);
     }
 
     #[test]

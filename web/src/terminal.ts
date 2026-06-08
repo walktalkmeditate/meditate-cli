@@ -17,6 +17,11 @@ export function createTerminal(container: HTMLElement): {
 } {
   const term = new Terminal({
     allowProposedApi: true,
+    // Transparent so the constellation backdrop behind the terminal shows
+    // through cleared cells. Empty/cleared cells fall back to the body
+    // background (#0a0c10), so normal (non-constellation) modes look unchanged;
+    // the orb still paints its own opaque per-cell background in block mode.
+    allowTransparency: true,
     cursorBlink: true,
     cursorStyle: 'bar',
     fontFamily: FONT_STACK,
@@ -24,7 +29,7 @@ export function createTerminal(container: HTMLElement): {
     lineHeight: 1.0,
     scrollback: 0,
     theme: {
-      background: '#0a0c10',
+      background: 'rgba(10, 12, 16, 0)',
       foreground: '#cfe3d4',
       cursor: '#cfe3d4',
     },

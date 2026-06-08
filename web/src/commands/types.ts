@@ -4,6 +4,9 @@ import type { AudioEngine } from '../audio';
 import type { Persistence } from '../store';
 import type { DeepLink } from '../deeplink';
 
+/** The appearance backdrop modes the web supports (the CLI also has 'dark'). */
+export type AppearanceMode = 'auto' | 'constellation';
+
 /** Services a command can use. */
 export interface CommandContext {
   session: Session;
@@ -22,6 +25,9 @@ export interface CommandContext {
   /** Whether the smooth Canvas-2D orb is showing (vs the half-block orb). */
   graphicsMode: () => boolean;
   setGraphics: (smooth: boolean) => void;
+  /** The active appearance backdrop: 'auto' (none) or 'constellation'. */
+  appearance: () => AppearanceMode;
+  setAppearance: (mode: AppearanceMode) => void;
   /** Track the active soundscape (for the share link + persistence). */
   setSound: (id: string | null) => void;
   /** The current session config, for building a share link. */

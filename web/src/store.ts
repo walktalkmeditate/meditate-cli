@@ -16,6 +16,7 @@ export interface Prefs {
   sound?: string;
   bell?: string;
   graphics?: boolean;
+  appearance?: string;
 }
 
 interface StoreData {

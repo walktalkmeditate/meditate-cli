@@ -15,6 +15,30 @@ pub enum Pin {
     Night,
 }
 
+/// The orb's appearance mode. `Auto` keeps the season/time-driven palette;
+/// `Dark` is a fixed dark palette; `Constellation` is a self-contained
+/// moss-on-deep-space look that (in later stages) carries a starfield.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Appearance {
+    #[default]
+    Auto,
+    Dark,
+    Constellation,
+}
+
+impl Appearance {
+    /// Parse a config string (case-insensitive). Unknown values return `None`
+    /// so callers can fall back to `Auto` rather than erroring on a typo.
+    pub fn from_str_opt(s: &str) -> Option<Appearance> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "auto" => Some(Appearance::Auto),
+            "dark" => Some(Appearance::Dark),
+            "constellation" => Some(Appearance::Constellation),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Season {
     Spring,
@@ -81,6 +105,50 @@ pub fn resolve_with_pin(mut season: Season, mut time: TimeOfDay, pin: Option<Pin
     palette(season, time)
 }
 
+/// Resolve the palette for a chosen appearance. `Auto` keeps the live
+/// season/time palette (honoring an optional `--pin-palette`); `Dark` and
+/// `Constellation` are fixed and ignore both season/time and any pin.
+pub fn resolve_appearance(
+    appearance: Appearance,
+    season: Season,
+    time: TimeOfDay,
+    pin: Option<Pin>,
+) -> Palette {
+    match appearance {
+        Appearance::Auto => resolve_with_pin(season, time, pin),
+        Appearance::Dark => dark(),
+        Appearance::Constellation => constellation(),
+    }
+}
+
+/// A fixed dark palette: steady moss on a deep neutral background, with no
+/// seasonal or time-of-day shift.
+fn dark() -> Palette {
+    fixed_palette(Rgb::new(10, 12, 16))
+}
+
+/// The Stage 1 constellation orb palette: moss on a deep-indigo background,
+/// matching Pilgrim iOS's Constellation canvas. The starfield is added in later
+/// stages, where seasonal tinting arrives too.
+///
+/// The background `#0a0a12` must stay in sync with `BASE_BG` in
+/// `web/src/constellation.ts`.
+fn constellation() -> Palette {
+    fixed_palette(Rgb::new(10, 10, 18))
+}
+
+/// A fixed moss palette over `background`, with no season/time shift. Shared by
+/// `dark` and `constellation`; the two diverge once Stage 3 gives constellation
+/// its own seasonal tinting.
+fn fixed_palette(background: Rgb) -> Palette {
+    Palette {
+        core: MOSS,
+        edge: scale_rgb(MOSS, 0.35),
+        background,
+        ripple: lighten(MOSS, 0.3),
+    }
+}
+
 fn apply_pin(season: &mut Season, time: &mut TimeOfDay, pin: Pin) {
     match pin {
         Pin::Spring => *season = Season::Spring,
@@ -133,4 +201,67 @@ fn scale_rgb(c: Rgb, factor: f32) -> Rgb {
 
 fn lighten(c: Rgb, t: f32) -> Rgb {
     Rgb::lerp(c, Rgb::new(255, 255, 255), t)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auto_matches_resolve_with_pin() {
+        let (season, time) = (Season::Summer, TimeOfDay::Dusk);
+        assert_eq!(
+            resolve_appearance(Appearance::Auto, season, time, None),
+            resolve_with_pin(season, time, None)
+        );
+    }
+
+    #[test]
+    fn dark_is_fixed_across_season_and_time() {
+        let a = resolve_appearance(Appearance::Dark, Season::Summer, TimeOfDay::Day, None);
+        let b = resolve_appearance(Appearance::Dark, Season::Winter, TimeOfDay::Night, None);
+        assert_eq!(a, b);
+        assert_eq!(a, dark());
+    }
+
+    #[test]
+    fn dark_ignores_pin() {
+        let pinned = resolve_appearance(
+            Appearance::Dark,
+            Season::Spring,
+            TimeOfDay::Dawn,
+            Some(Pin::Autumn),
+        );
+        assert_eq!(pinned, dark());
+    }
+
+    #[test]
+    fn constellation_is_fixed_and_self_contained() {
+        let a = resolve_appearance(
+            Appearance::Constellation,
+            Season::Spring,
+            TimeOfDay::Dawn,
+            None,
+        );
+        let b = resolve_appearance(
+            Appearance::Constellation,
+            Season::Autumn,
+            TimeOfDay::Night,
+            Some(Pin::Spring),
+        );
+        assert_eq!(a, b);
+        assert_eq!(a, constellation());
+    }
+
+    #[test]
+    fn from_str_opt_parses_case_insensitively() {
+        assert_eq!(Appearance::from_str_opt("dark"), Some(Appearance::Dark));
+        assert_eq!(Appearance::from_str_opt("  DARK "), Some(Appearance::Dark));
+        assert_eq!(
+            Appearance::from_str_opt("constellation"),
+            Some(Appearance::Constellation)
+        );
+        assert_eq!(Appearance::from_str_opt("auto"), Some(Appearance::Auto));
+        assert_eq!(Appearance::from_str_opt("bogus"), None);
+    }
 }

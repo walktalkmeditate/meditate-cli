@@ -17,6 +17,7 @@ pub struct Config {
     pub default_bell: Option<String>,
     pub master_volume: Option<u8>,
     pub palette: Option<String>,
+    pub appearance: Option<String>,
     pub resume_last_pattern: Option<bool>,
     pub streak_enabled: Option<bool>,
     pub door_enabled: Option<bool>,
@@ -115,6 +116,11 @@ pub fn default_template() -> &'static str {
 # iTerm2). On by default there; set false to force the half-block orb (also:
 # --no-graphics).
 # graphics = true
+
+# Orb appearance: auto (palette shifts with season + time of day), dark (a fixed
+# dark palette), or constellation (a starfield the orb floats in). Also:
+# --appearance. An unrecognized value falls back to auto.
+# appearance = \"auto\"
 
 # ── Sound packs ──────────────────────────────────────────────────────────────
 # Download packs first, e.g.  meditate download soundscapes

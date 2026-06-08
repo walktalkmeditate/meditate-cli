@@ -1,11 +1,11 @@
 import { PATTERNS, isPattern, PATTERN_LABELS } from '../patterns';
 import { renderMotd } from '../motd';
-import type { Command, CommandContext } from './types';
+import type { Command, CommandContext, AppearanceMode } from './types';
 import { parseLine } from './types';
 import { helpCommand, manCommand } from './help';
 import { installCommand, whichCommand, whoamiCommand } from './discovery';
 
-export type { Command, CommandContext } from './types';
+export type { Command, CommandContext, AppearanceMode } from './types';
 
 const pauseCommand: Command = {
   name: 'pause',
@@ -34,6 +34,30 @@ const graphicsCommand: Command = {
     const smooth = !ctx.graphicsMode();
     ctx.setGraphics(smooth);
     ctx.status(smooth ? 'graphics: smooth' : 'graphics: blocks');
+  },
+};
+
+const appearanceCommand: Command = {
+  name: 'appearance',
+  aliases: ['sky', 'theme'],
+  summary: 'toggle the constellation backdrop',
+  run: (args, ctx) => {
+    const arg = args[0]?.toLowerCase();
+    let mode: AppearanceMode;
+    if (arg === 'auto' || arg === 'constellation') {
+      mode = arg;
+    } else if (arg === undefined) {
+      mode = ctx.appearance() === 'constellation' ? 'auto' : 'constellation';
+    } else {
+      ctx.status('appearance: auto | constellation');
+      return;
+    }
+    ctx.setAppearance(mode);
+    ctx.status(
+      mode === 'constellation'
+        ? 'appearance: constellation (smooth orb shows it best)'
+        : 'appearance: auto',
+    );
   },
 };
 
@@ -75,6 +99,7 @@ export function buildRegistry(extra: Command[] = []): Registry {
     prevCommand,
     ...extra,
     graphicsCommand,
+    appearanceCommand,
     clearCommand,
     helpCommand,
     manCommand,
