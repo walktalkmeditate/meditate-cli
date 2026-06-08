@@ -13,6 +13,7 @@ pub enum Action {
     VolumeDown,
     Pause,
     Focus,
+    CycleAppearance,
     Quit,
 }
 
@@ -29,6 +30,7 @@ impl Action {
             "volume_down" => Action::VolumeDown,
             "pause" => Action::Pause,
             "focus" => Action::Focus,
+            "cycle_appearance" => Action::CycleAppearance,
             "quit" => Action::Quit,
             _ => return None,
         })
@@ -55,6 +57,7 @@ impl Keymap {
             ('-', Action::VolumeDown),
             (' ', Action::Pause),
             ('f', Action::Focus),
+            ('a', Action::CycleAppearance),
             ('q', Action::Quit),
         ]
         .into_iter()

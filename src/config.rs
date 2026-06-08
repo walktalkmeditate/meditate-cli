@@ -152,6 +152,7 @@ pub fn default_template() -> &'static str {
 # volume_down = \"-\"
 # pause = \" \"
 # focus = \"f\"
+# cycle_appearance = \"a\"
 # quit = \"q\"
 "
 }

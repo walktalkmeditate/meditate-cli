@@ -188,6 +188,26 @@ fn next_cycle_index(current: Option<usize>, len: usize) -> Option<usize> {
     }
 }
 
+/// The next appearance in the `a`-key cycle: auto → dark → constellation → auto.
+fn next_appearance(current: palette::Appearance) -> palette::Appearance {
+    use palette::Appearance::{Auto, Constellation, Dark};
+    match current {
+        Auto => Dark,
+        Dark => Constellation,
+        Constellation => Auto,
+    }
+}
+
+/// The status-line label for an appearance, matching the `--appearance` values.
+fn appearance_label(appearance: palette::Appearance) -> &'static str {
+    use palette::Appearance::{Auto, Constellation, Dark};
+    match appearance {
+        Auto => "auto",
+        Dark => "dark",
+        Constellation => "constellation",
+    }
+}
+
 /// Format a kebab-case pattern name for display: "deep-calm" -> "Deep calm".
 fn title_case(name: &str) -> String {
     let spaced = name.replace('-', " ");
@@ -403,10 +423,23 @@ struct Session {
     reduce_motion: bool,
     door_enabled: bool,
     palette: palette::Palette,
-    starfield: Option<Starfield>,
+    /// The live appearance, cycled with the `a` key; drives the palette, whether
+    /// the starfield renders, and (on graphics terminals) whether the orb falls
+    /// back to the half-block path.
+    appearance: palette::Appearance,
+    /// The `--pin-palette` override, kept so the palette can be re-resolved when
+    /// the appearance is cycled.
+    pin: Option<palette::Pin>,
+    starfield: Starfield,
     /// Last drawn (cols, rows); a change clears the screen so a shrunk frame
     /// leaves no stale star cells behind.
     last_size: Option<(u16, u16)>,
+    /// Set when the appearance is cycled, so the next frame wipes the old screen
+    /// (the background and orb colors change).
+    pending_clear: bool,
+    /// Whether the previous frame used the inline-graphics path — so the image is
+    /// torn down when a toggle to constellation drops to the half-block path.
+    was_graphics: bool,
     master: f32,
     muted: bool,
     focus: bool,
@@ -446,13 +479,13 @@ impl Session {
         let caps = Capabilities::detect(&env);
         let (month, hour) = now_month_hour();
         let appearance = effective_appearance(cli, config);
+        let pin = cli.pin_palette.map(Into::into);
         let palette = palette::resolve_appearance(
             appearance,
             season_for_month(month),
             time_for_hour(hour),
-            cli.pin_palette.map(Into::into),
+            pin,
         );
-        let constellation = appearance == palette::Appearance::Constellation;
         let pattern_name =
             crate::resolve_start_pattern(cli.pattern.map(|p| p.as_str()), config, state)
                 .unwrap_or_else(|| "calm".to_string());
@@ -462,18 +495,19 @@ impl Session {
         let master = f32::from(config.master_volume.or(state.master_volume).unwrap_or(80)) / 100.0;
         audio.set_master(master);
 
-        // Constellation forces the half-block path: glyph star cells cannot be
-        // carried through the pixelated inline-graphics image.
-        let graphics: Option<Box<dyn ImageRenderer>> =
-            if !constellation && use_graphics(cli, config, &caps, &env) {
-                match caps.graphics {
-                    GraphicsProtocol::Kitty => Some(Box::new(graphics::KittyRenderer::new())),
-                    GraphicsProtocol::ITerm2 => Some(Box::new(graphics::ITerm2Renderer::new())),
-                    GraphicsProtocol::None => None,
-                }
-            } else {
-                None
-            };
+        // Graphics is built regardless of the starting appearance so the `a`
+        // toggle can return to it. Constellation forces the half-block path per
+        // frame (see `use_graphics_now`): glyph star cells cannot be carried
+        // through the pixelated inline-graphics image.
+        let graphics: Option<Box<dyn ImageRenderer>> = if use_graphics(cli, config, &caps, &env) {
+            match caps.graphics {
+                GraphicsProtocol::Kitty => Some(Box::new(graphics::KittyRenderer::new())),
+                GraphicsProtocol::ITerm2 => Some(Box::new(graphics::ITerm2Renderer::new())),
+                GraphicsProtocol::None => None,
+            }
+        } else {
+            None
+        };
 
         let mut session = Session {
             breath: Breath::new(breath::pattern_by_name(&pattern_name), Duration::ZERO),
@@ -484,8 +518,12 @@ impl Session {
             reduce_motion: reduce_motion_enabled(cli.reduce_motion, config, &env),
             door_enabled: config.door_enabled.unwrap_or(true) && !cli.no_door,
             palette,
-            starfield: constellation.then(|| Starfield::new(STARFIELD_SEED)),
+            appearance,
+            pin,
+            starfield: Starfield::new(STARFIELD_SEED),
             last_size: None,
+            pending_clear: false,
+            was_graphics: false,
             master,
             muted: false,
             focus: false,
@@ -744,8 +782,32 @@ impl Session {
                 self.focus = !self.focus;
                 self.focus.then(|| "Focus".to_string())
             }
+            Action::CycleAppearance => self.cycle_appearance(),
             Action::Quit => None,
         }
+    }
+
+    /// Cycle the orb appearance auto → dark → constellation → auto, live. Re-
+    /// resolves the palette (constellation brings in the starfield + the
+    /// indigo cosmos, and on a graphics terminal drops to the half-block path);
+    /// the next frame clears first so no stale background lingers.
+    fn cycle_appearance(&mut self) -> Option<String> {
+        self.appearance = next_appearance(self.appearance);
+        let (month, hour) = now_month_hour();
+        self.palette = palette::resolve_appearance(
+            self.appearance,
+            season_for_month(month),
+            time_for_hour(hour),
+            self.pin,
+        );
+        self.pending_clear = true;
+        Some(appearance_label(self.appearance).to_string())
+    }
+
+    /// Whether this frame uses the inline-graphics image path: a graphics
+    /// terminal, and not constellation (glyph stars can't ride the image).
+    fn use_graphics_now(&self) -> bool {
+        self.graphics.is_some() && self.appearance != palette::Appearance::Constellation
     }
 
     /// Cycle the soundscape: off → first → … → last → off. Decoding happens on
@@ -892,7 +954,7 @@ impl Session {
             Duration::from_millis(200)
         } else if matches!(phase, Phase::HoldIn | Phase::HoldOut | Phase::Still) {
             Duration::from_millis(100)
-        } else if self.graphics.is_some() {
+        } else if self.use_graphics_now() {
             // A full image transmits each frame; ~22fps keeps bandwidth in check
             // and is imperceptible on the slow-moving orb.
             Duration::from_millis(45)
@@ -927,22 +989,34 @@ impl Session {
             voice,
             voice_pulse,
             palette: self.palette,
-            // The half-block orb (graphics off) always gets the soft glow rim;
-            // the crisp inline-graphics orb stays hard-edged.
-            soft_edge: self.graphics.is_none(),
+            // The half-block orb always gets the soft glow rim; the crisp
+            // inline-graphics orb stays hard-edged.
+            soft_edge: !self.use_graphics_now(),
         };
 
+        let constellation = self.appearance == palette::Appearance::Constellation;
+        let use_gfx = self.use_graphics_now();
+        let leaving_gfx = self.was_graphics && !use_gfx;
+        self.was_graphics = use_gfx;
+
         let mut stdout = io::stdout();
-        // On a resize, wipe the screen first so a shrunk constellation frame
-        // leaves no stranded star glyphs at the old edges.
-        if resized && self.starfield.is_some() {
+        // Wipe the screen on an appearance cycle, on a resize in constellation
+        // (so a shrunk frame strands no star glyphs), and when a toggle drops off
+        // the graphics path — tearing the inline image down so it doesn't linger.
+        if self.pending_clear || leaving_gfx || (resized && constellation) {
+            if leaving_gfx {
+                if let Some(gfx) = &self.graphics {
+                    stdout.write_all(gfx.teardown().as_bytes())?;
+                }
+            }
             queue!(stdout, Clear(ClearType::All))?;
+            self.pending_clear = false;
         }
         queue!(stdout, cursor::MoveTo(0, 0))?;
-        if let Some(kitty) = &self.graphics {
+        if use_gfx {
+            let kitty = self.graphics.as_ref().expect("use_gfx implies graphics");
             // Paint the orb into a small art grid, then block-upscale it: crisp,
-            // chunky pixels rather than a smoothly-scaled image. The half-block
-            // path below is unchanged.
+            // chunky pixels rather than a smoothly-scaled image.
             let (aw, ah) = graphics::art_size(cols, orb_rows);
             let mut art = Surface::new(aw, ah, self.palette.background);
             orb::paint(&mut art, &scene);
@@ -952,12 +1026,14 @@ impl Session {
         } else {
             let mut surface = Surface::new(cols, orb_rows * 2, self.palette.background);
             orb::paint(&mut surface, &scene);
-            if let Some(field) = &self.starfield {
+            if constellation {
                 // Clearing just past the full-inhale orb body keeps the steady
                 // field off the orb; the orb-wins check in paint() handles the
                 // transient reach of voice rings and ripples.
                 let base = (cols.min(orb_rows * 2) as f32 / 2.0) * 0.92;
-                let stars = field.cells(cols, orb_rows * 2, base * CLEARING_MARGIN);
+                let stars = self
+                    .starfield
+                    .cells(cols, orb_rows * 2, base * CLEARING_MARGIN);
                 let bloom = field_bloom(self.reduce_motion, state);
                 starfield::paint(&mut surface, &stars, bloom, self.palette.background);
             }
@@ -992,13 +1068,15 @@ impl Session {
             line.push_str("  ·  ");
             line.push_str(message);
         } else if hint_visible {
-            line.push_str("  ·  q quit · space pause · n pattern · b bell · m mute · f focus");
+            line.push_str(
+                "  ·  q quit · space pause · n pattern · b bell · m mute · a sky · f focus",
+            );
         }
         line
     }
 
     fn fade_out(&mut self) {
-        if self.graphics.is_some() {
+        if self.use_graphics_now() {
             self.fade_out_graphics();
             return;
         }
@@ -1172,7 +1250,19 @@ mod tests {
             classify_key(&char_key('n'), &keymap),
             KeyOutcome::Act(Action::NextPattern)
         );
+        assert_eq!(
+            classify_key(&char_key('a'), &keymap),
+            KeyOutcome::Act(Action::CycleAppearance)
+        );
         assert_eq!(classify_key(&char_key('Z'), &keymap), KeyOutcome::Ignore);
+    }
+
+    #[test]
+    fn appearance_cycles_auto_dark_constellation_and_wraps() {
+        use crate::palette::Appearance::{Auto, Constellation, Dark};
+        assert_eq!(next_appearance(Auto), Dark);
+        assert_eq!(next_appearance(Dark), Constellation);
+        assert_eq!(next_appearance(Constellation), Auto);
     }
 
     #[test]
