@@ -81,6 +81,9 @@ async function boot(): Promise<void> {
   } catch (err) {
     console.error('constellation backdrop unavailable', err);
   }
+  // In constellation mode the block orb renders a transparent background, so the
+  // cosmos shows behind it too — not only under the smooth orb.
+  session.setTransparentBackground(appearance === 'constellation');
 
   // The breathing browser tab lives in the icon (see favicon.ts).
   const favicon = new BreathingFavicon();
@@ -163,6 +166,7 @@ async function boot(): Promise<void> {
     setAppearance: (mode) => {
       appearance = mode;
       store.setPref('appearance', mode);
+      session.setTransparentBackground(mode === 'constellation');
     },
     setSound: (id) => {
       currentSound = id;

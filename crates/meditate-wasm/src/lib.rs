@@ -82,6 +82,16 @@ impl Session {
         self.voice_active = active;
     }
 
+    /// When `on`, the half-block orb renders its deep-space background as
+    /// transparent cells, so a backdrop behind a transparent terminal (the
+    /// constellation canvas) shows through — the moss orb floats on the cosmos
+    /// in block mode too. Off restores the opaque background.
+    #[wasm_bindgen(js_name = setTransparentBackground)]
+    pub fn set_transparent_background(&mut self, on: bool) {
+        self.renderer
+            .set_transparent_bg(on.then_some(self.palette.background));
+    }
+
     /// Emit a ripple on each newly completed breath, then age and cull the rest.
     fn advance_ripples(&mut self, dt: f32) {
         let breath = self.breath.breath_count();
@@ -321,6 +331,22 @@ mod tests {
         );
         // The accessors reflect the advanced breath.
         assert!(session.glow() >= 0.0 && session.scale() > 0.0);
+    }
+
+    #[test]
+    fn transparent_background_blanks_deep_space_cells() {
+        let mut session = Session::new("box", 6, 12);
+        let opaque = session.tick_frame(0.0, 20, 10);
+        assert!(
+            !opaque.contains("\x1b[49m"),
+            "opaque mode fills every cell with a background color"
+        );
+        session.set_transparent_background(true);
+        let transparent = session.tick_frame(0.0, 20, 10);
+        assert!(
+            transparent.contains("\x1b[49m"),
+            "transparent mode blanks the deep-space cells"
+        );
     }
 
     #[test]

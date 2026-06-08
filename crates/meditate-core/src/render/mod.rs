@@ -201,6 +201,21 @@ mod tests {
     }
 
     #[test]
+    fn transparent_bg_blanks_pure_background_cells() {
+        let bg = Rgb::new(10, 12, 16);
+        let mut s = Surface::new(2, 2, bg); // cell (1,0) stays pure background
+        s.set(0, 0, Rgb::new(96, 138, 102)); // cell (0,0) gets an orb pixel
+        let mut cg = cell_gradient::CellGradient::new(ColorDepth::Truecolor);
+        cg.set_transparent_bg(Some(bg));
+        let out = cg.encode(&s);
+        assert!(out.contains("\x1b[49m ")); // pure-bg cell → blank, default bg
+        assert!(out.contains('▀')); // the orb cell still renders opaque
+                                    // Without transparent mode the same surface has no default-bg blanks.
+        let opaque = cell_gradient::CellGradient::new(ColorDepth::Truecolor).encode(&s);
+        assert!(!opaque.contains("\x1b[49m"));
+    }
+
+    #[test]
     fn mono_emits_glyph_as_presence_without_color() {
         let mut s = Surface::new(1, 2, Rgb::BLACK);
         s.set_glyph(0, 0, '·', Rgb::new(200, 200, 200));
