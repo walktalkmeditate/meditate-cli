@@ -927,6 +927,7 @@ impl Session {
             voice,
             voice_pulse,
             palette: self.palette,
+            soft_edge: self.starfield.is_some(),
         };
 
         let mut stdout = io::stdout();
@@ -1009,6 +1010,7 @@ impl Session {
                 voice: 0.0,
                 voice_pulse: 0.0,
                 palette: self.palette,
+                soft_edge: self.starfield.is_some(),
             };
             if let Ok((cols, rows)) = terminal::size() {
                 if cols > 0 && rows >= 2 {
@@ -1048,6 +1050,7 @@ impl Session {
                         voice: 0.0,
                         voice_pulse: 0.0,
                         palette: self.palette,
+                        soft_edge: false,
                     };
                     let mut art = Surface::new(aw, ah, self.palette.background);
                     orb::paint(&mut art, &scene);

@@ -45,6 +45,9 @@ pub struct Session {
     /// `setVoice`); drives the orb's vibrating voice rings + core-soften.
     voice_env: f32,
     voice_active: bool,
+    /// Constellation soft-edge glow: the orb's rim fades into the cosmos rather
+    /// than ending in a hard ring. Tracks the constellation background.
+    soft_edge: bool,
 }
 
 #[wasm_bindgen]
@@ -74,6 +77,7 @@ impl Session {
             last_breath: 0,
             voice_env: 0.0,
             voice_active: false,
+            soft_edge: false,
         }
     }
 
@@ -85,19 +89,20 @@ impl Session {
         self.voice_active = active;
     }
 
-    /// Enter or leave constellation rendering. When `on`, the orb switches to the
-    /// constellation palette (moss on deep indigo) and renders its background as
-    /// transparent cells — so the moss orb floats on the canvas cosmos in block
-    /// mode too, and its soft edge / ripples read as glow against the matching
-    /// indigo rather than a dark fringe. Off restores the season/time palette and
-    /// the opaque background.
+    /// Enter or leave constellation rendering. When `on`, the orb keeps its
+    /// season/time colors but floats on the deep-indigo cosmos, its rim softened
+    /// to a glow, and renders its background as transparent cells — so the orb
+    /// sits on the canvas cosmos in block mode too, its soft edge / ripples
+    /// reading as glow against the matching indigo rather than a dark fringe. Off
+    /// restores the season/time palette and the opaque background.
     #[wasm_bindgen(js_name = setTransparentBackground)]
     pub fn set_transparent_background(&mut self, on: bool) {
         self.palette = if on {
-            palette::constellation()
+            palette::over_cosmos(self.base_palette)
         } else {
             self.base_palette
         };
+        self.soft_edge = on;
         self.renderer
             .set_transparent_bg(on.then_some(self.palette.background));
     }
@@ -170,6 +175,7 @@ impl Session {
             voice: self.voice_env,
             voice_pulse,
             palette: self.palette,
+            soft_edge: self.soft_edge,
         };
         let mut surface = Surface::new(cols, rows * 2, self.palette.background);
         orb::paint(&mut surface, &scene);

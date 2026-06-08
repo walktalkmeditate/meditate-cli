@@ -9,6 +9,13 @@ pub const STILL_SCALE: f32 = 0.7;
 /// Half-thickness (in pixels) of the breath ripple ring.
 const RIPPLE_HALF_WIDTH: f32 = 1.6;
 
+/// Constellation soft-edge halo: the dim edge color fades into the background
+/// over a band this fraction of the orb radius wide, so the orb melts into deep
+/// space as a glow instead of ending in a hard ring. The peak opacity matches
+/// the body's rim alpha (`1 - 0.2`) for a seamless hand-off.
+const EDGE_HALO_FRACTION: f32 = 0.14;
+const EDGE_HALO_ALPHA: f32 = 0.8;
+
 /// Outer rings that appear and vibrate while a voice guide speaks — mirrors the
 /// iOS MeditationView voiceRingLayer (4 concentric rings, scale + opacity pulse).
 /// Radii are multiples of the orb's base radius; the outer ones extend past the
@@ -59,6 +66,10 @@ pub struct OrbScene {
     /// A 0..1 oscillator (caller-driven, ~2.5s) that vibrates the voice rings.
     pub voice_pulse: f32,
     pub palette: Palette,
+    /// When true, the orb's rim fades into the background as a soft glow rather
+    /// than ending in a hard ring — the constellation look, where it reads as
+    /// the orb breathing light into deep space.
+    pub soft_edge: bool,
 }
 
 /// Paint the orb, ripples, glow, and milestone flash into the surface. Pure: it
@@ -98,6 +109,16 @@ pub fn paint(surface: &mut Surface, scene: &OrbScene) {
                 if scene.glow > 0.0 {
                     let inner = 1.0 - (dist / (radius * 0.5)).min(1.0);
                     surface.blend(x, y, scene.palette.core, inner * scene.glow * 0.35 * soften);
+                }
+            } else if scene.soft_edge {
+                // A soft halo just beyond the rim: the dim edge color fades out
+                // over a short band so the orb melts into deep space rather than
+                // stopping at a hard ring. Quadratic falloff from an opacity that
+                // matches the body's outer edge, so the hand-off is seamless.
+                let halo = (radius * EDGE_HALO_FRACTION).max(1.5);
+                if dist <= radius + halo {
+                    let f = 1.0 - (dist - radius) / halo;
+                    surface.blend(x, y, scene.palette.edge, f * f * EDGE_HALO_ALPHA * soften);
                 }
             }
 
@@ -140,4 +161,60 @@ pub fn paint(surface: &mut Surface, scene: &OrbScene) {
 
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::palette::{self, Season, TimeOfDay};
+    use crate::render::Surface;
+
+    fn scene(soft_edge: bool) -> OrbScene {
+        OrbScene {
+            scale: 1.0,
+            glow: 0.0,
+            ripples: Vec::new(),
+            milestone_flash: 0.0,
+            voice: 0.0,
+            voice_pulse: 0.0,
+            palette: palette::over_cosmos(palette::palette(Season::Summer, TimeOfDay::Day)),
+            soft_edge,
+        }
+    }
+
+    fn lit_cells(s: &Surface, bg: Rgb) -> usize {
+        let (w, h) = (s.width(), s.height());
+        (0..h)
+            .flat_map(|y| (0..w).map(move |x| (x, y)))
+            .filter(|&(x, y)| s.get(x, y) != bg)
+            .count()
+    }
+
+    #[test]
+    fn soft_edge_paints_a_halo_the_hard_edge_leaves_as_background() {
+        let bg = palette::CONSTELLATION_BG;
+        let (w, h) = (48, 48);
+
+        let mut hard = Surface::new(w, h, bg);
+        paint(&mut hard, &scene(false));
+        let mut soft = Surface::new(w, h, bg);
+        paint(&mut soft, &scene(true));
+
+        // Same orb body; the soft edge adds a ring of glow cells just outside the
+        // rim that the hard edge leaves untouched.
+        assert!(
+            lit_cells(&soft, bg) > lit_cells(&hard, bg),
+            "soft edge should light a halo beyond the rim"
+        );
+    }
+
+    #[test]
+    fn soft_edge_halo_stays_near_the_rim() {
+        // The halo must not bleed across the whole surface — a cell far from the
+        // orb (a corner) stays background even with the soft edge on.
+        let bg = palette::CONSTELLATION_BG;
+        let mut soft = Surface::new(48, 48, bg);
+        paint(&mut soft, &scene(true));
+        assert_eq!(soft.get(0, 0), bg, "the far corner must remain deep space");
+    }
 }
