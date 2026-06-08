@@ -9,10 +9,10 @@ pub const STILL_SCALE: f32 = 0.7;
 /// Half-thickness (in pixels) of the breath ripple ring.
 const RIPPLE_HALF_WIDTH: f32 = 1.6;
 
-/// Constellation soft-edge halo: the dim edge color fades into the background
-/// over a band this fraction of the orb radius wide, so the orb melts into deep
-/// space as a glow instead of ending in a hard ring. The peak opacity matches
-/// the body's rim alpha (`1 - 0.2`) for a seamless hand-off.
+/// Soft-edge halo: the dim edge color fades into the background over a band this
+/// fraction of the orb radius wide, so the orb melts into the backdrop as a glow
+/// instead of ending in a hard ring. The peak opacity matches the body's rim
+/// alpha (`1 - 0.2`) for a seamless hand-off.
 const EDGE_HALO_FRACTION: f32 = 0.14;
 const EDGE_HALO_ALPHA: f32 = 0.8;
 
@@ -67,8 +67,9 @@ pub struct OrbScene {
     pub voice_pulse: f32,
     pub palette: Palette,
     /// When true, the orb's rim fades into the background as a soft glow rather
-    /// than ending in a hard ring — the constellation look, where it reads as
-    /// the orb breathing light into deep space.
+    /// than ending in a hard ring — used for the half-block orb so it reads as
+    /// breathing light rather than a hard disc. The crisp inline-graphics orb
+    /// leaves this off.
     pub soft_edge: bool,
 }
 

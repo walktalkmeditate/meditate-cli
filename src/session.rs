@@ -927,7 +927,9 @@ impl Session {
             voice,
             voice_pulse,
             palette: self.palette,
-            soft_edge: self.starfield.is_some(),
+            // The half-block orb (graphics off) always gets the soft glow rim;
+            // the crisp inline-graphics orb stays hard-edged.
+            soft_edge: self.graphics.is_none(),
         };
 
         let mut stdout = io::stdout();
@@ -1010,7 +1012,7 @@ impl Session {
                 voice: 0.0,
                 voice_pulse: 0.0,
                 palette: self.palette,
-                soft_edge: self.starfield.is_some(),
+                soft_edge: true,
             };
             if let Ok((cols, rows)) = terminal::size() {
                 if cols > 0 && rows >= 2 {
