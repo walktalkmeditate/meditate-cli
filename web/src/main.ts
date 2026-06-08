@@ -18,7 +18,7 @@ import { Persistence, MIN_SESSION_SECS, localDayKey } from './store';
 import { parseHash, hasConfig } from './deeplink';
 import { isTouch, createChipBar } from './mobile';
 
-const VERSION = '0.5.1';
+const VERSION = '0.5.2';
 const PROMPT = `${moss('❯')} `;
 
 /** Fade out and remove the zero-JS loading placeholder once the orb is live. */
