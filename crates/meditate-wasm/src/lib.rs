@@ -32,6 +32,8 @@ pub struct Session {
     breath: Breath,
     renderer: CellGradient,
     palette: Palette,
+    /// The season/time palette to restore when constellation mode turns off.
+    base_palette: Palette,
     last_state: PhaseState,
     last_title: String,
     last_now: Duration,
@@ -64,6 +66,7 @@ impl Session {
             // banding (the half-block's fg≠bg already dithers).
             renderer: CellGradient::quantized(meditate_core::caps::ColorDepth::Truecolor, 4),
             palette,
+            base_palette: palette,
             last_state,
             last_title: String::new(),
             last_now: Duration::ZERO,
@@ -82,12 +85,19 @@ impl Session {
         self.voice_active = active;
     }
 
-    /// When `on`, the half-block orb renders its deep-space background as
-    /// transparent cells, so a backdrop behind a transparent terminal (the
-    /// constellation canvas) shows through — the moss orb floats on the cosmos
-    /// in block mode too. Off restores the opaque background.
+    /// Enter or leave constellation rendering. When `on`, the orb switches to the
+    /// constellation palette (moss on deep indigo) and renders its background as
+    /// transparent cells — so the moss orb floats on the canvas cosmos in block
+    /// mode too, and its soft edge / ripples read as glow against the matching
+    /// indigo rather than a dark fringe. Off restores the season/time palette and
+    /// the opaque background.
     #[wasm_bindgen(js_name = setTransparentBackground)]
     pub fn set_transparent_background(&mut self, on: bool) {
+        self.palette = if on {
+            palette::constellation()
+        } else {
+            self.base_palette
+        };
         self.renderer
             .set_transparent_bg(on.then_some(self.palette.background));
     }
@@ -346,6 +356,12 @@ mod tests {
         assert!(
             transparent.contains("\x1b[49m"),
             "transparent mode blanks the deep-space cells"
+        );
+        session.set_transparent_background(false);
+        let restored = session.tick_frame(0.0, 20, 10);
+        assert!(
+            !restored.contains("\x1b[49m"),
+            "turning it off restores the opaque background"
         );
     }
 
