@@ -16,8 +16,8 @@ pub enum Pin {
 }
 
 /// The orb's appearance mode. `Auto` keeps the season/time-driven palette;
-/// `Dark` is a fixed dark palette; `Constellation` is a self-contained
-/// moss-on-deep-space look that (in later stages) carries a starfield.
+/// `Dark` is a fixed dark palette; `Constellation` floats that same season/time
+/// orb on a deep-indigo cosmos, carrying a starfield.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Appearance {
     #[default]
@@ -68,6 +68,11 @@ pub struct Palette {
 
 const MOSS: Rgb = Rgb::new(96, 138, 102);
 
+/// The constellation cosmos background — deep indigo. Must stay in sync with
+/// `BASE_BG` in `web/src/constellation.ts` so the block orb's transparent cells
+/// composite seamlessly onto the canvas backdrop.
+pub const CONSTELLATION_BG: Rgb = Rgb::new(10, 10, 18);
+
 pub fn season_for_month(month: u32) -> Season {
     match month {
         3..=5 => Season::Spring,
@@ -106,8 +111,9 @@ pub fn resolve_with_pin(mut season: Season, mut time: TimeOfDay, pin: Option<Pin
 }
 
 /// Resolve the palette for a chosen appearance. `Auto` keeps the live
-/// season/time palette (honoring an optional `--pin-palette`); `Dark` and
-/// `Constellation` are fixed and ignore both season/time and any pin.
+/// season/time palette (honoring an optional `--pin-palette`); `Dark` is fixed
+/// and ignores season/time and any pin; `Constellation` keeps the live
+/// season/time orb (honoring the pin) but floats it on the fixed indigo cosmos.
 pub fn resolve_appearance(
     appearance: Appearance,
     season: Season,
@@ -117,7 +123,7 @@ pub fn resolve_appearance(
     match appearance {
         Appearance::Auto => resolve_with_pin(season, time, pin),
         Appearance::Dark => dark(),
-        Appearance::Constellation => constellation(),
+        Appearance::Constellation => over_cosmos(resolve_with_pin(season, time, pin)),
     }
 }
 
@@ -127,21 +133,21 @@ fn dark() -> Palette {
     fixed_palette(Rgb::new(10, 12, 16))
 }
 
-/// The Stage 1 constellation orb palette: moss on a deep-indigo background,
-/// matching Pilgrim iOS's Constellation canvas. The starfield is added in later
-/// stages, where seasonal tinting arrives too. Public so the WASM facade can
-/// switch the web orb to it (the indigo background matches the canvas cosmos, so
-/// the orb's soft edge reads as glow rather than a dark fringe).
-///
-/// The background `#0a0a12` must stay in sync with `BASE_BG` in
-/// `web/src/constellation.ts`.
-pub fn constellation() -> Palette {
-    fixed_palette(Rgb::new(10, 10, 18))
+/// Float a resolved orb palette in the constellation cosmos: keep its
+/// season/time core, edge, and ripple — so it reads as the familiar breathing
+/// orb — but paint it over the deep-indigo background. Used by
+/// `resolve_appearance` and by the WASM facade, which already holds the base
+/// season/time palette. The matching indigo lets the orb's soft edge read as a
+/// glow against deep space rather than a dark fringe.
+pub fn over_cosmos(base: Palette) -> Palette {
+    Palette {
+        background: CONSTELLATION_BG,
+        ..base
+    }
 }
 
-/// A fixed moss palette over `background`, with no season/time shift. Shared by
-/// `dark` and `constellation`; the two diverge once Stage 3 gives constellation
-/// its own seasonal tinting.
+/// A fixed moss palette over `background`, with no season/time shift — the
+/// `Dark` appearance.
 fn fixed_palette(background: Rgb) -> Palette {
     Palette {
         core: MOSS,
@@ -238,21 +244,40 @@ mod tests {
     }
 
     #[test]
-    fn constellation_is_fixed_and_self_contained() {
-        let a = resolve_appearance(
+    fn constellation_floats_the_season_time_orb_on_the_cosmos() {
+        let spring_dawn = resolve_appearance(
             Appearance::Constellation,
             Season::Spring,
             TimeOfDay::Dawn,
             None,
         );
-        let b = resolve_appearance(
+        let autumn_night = resolve_appearance(
             Appearance::Constellation,
             Season::Autumn,
             TimeOfDay::Night,
-            Some(Pin::Spring),
+            None,
         );
-        assert_eq!(a, b);
-        assert_eq!(a, constellation());
+        // The cosmos background is fixed regardless of season/time...
+        assert_eq!(spring_dawn.background, CONSTELLATION_BG);
+        assert_eq!(autumn_night.background, CONSTELLATION_BG);
+        // ...but the orb itself tracks season/time, exactly like Auto.
+        assert_eq!(
+            spring_dawn.core,
+            resolve_with_pin(Season::Spring, TimeOfDay::Dawn, None).core
+        );
+        assert_ne!(spring_dawn.core, autumn_night.core);
+        // The pin shifts the orb just as it would for Auto, over the same cosmos.
+        let pinned = resolve_appearance(
+            Appearance::Constellation,
+            Season::Spring,
+            TimeOfDay::Dawn,
+            Some(Pin::Autumn),
+        );
+        assert_eq!(
+            pinned.core,
+            resolve_with_pin(Season::Spring, TimeOfDay::Dawn, Some(Pin::Autumn)).core
+        );
+        assert_eq!(pinned.background, CONSTELLATION_BG);
     }
 
     #[test]

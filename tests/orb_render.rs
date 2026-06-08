@@ -23,6 +23,7 @@ fn voice_rings_light_the_outer_band_only_while_a_guide_speaks() {
             voice,
             voice_pulse: 1.0,
             palette: pal,
+            soft_edge: false,
         };
         let mut s = Surface::new(120, 120, pal.background);
         paint(&mut s, &scene);
@@ -68,6 +69,7 @@ fn scene(scale: f32) -> OrbScene {
         voice: 0.0,
         voice_pulse: 0.0,
         palette: palette(Season::Spring, TimeOfDay::Day),
+        soft_edge: false,
     }
 }
 

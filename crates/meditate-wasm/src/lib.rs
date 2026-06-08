@@ -85,16 +85,17 @@ impl Session {
         self.voice_active = active;
     }
 
-    /// Enter or leave constellation rendering. When `on`, the orb switches to the
-    /// constellation palette (moss on deep indigo) and renders its background as
-    /// transparent cells — so the moss orb floats on the canvas cosmos in block
-    /// mode too, and its soft edge / ripples read as glow against the matching
-    /// indigo rather than a dark fringe. Off restores the season/time palette and
-    /// the opaque background.
+    /// Enter or leave constellation rendering. When `on`, the orb keeps its
+    /// season/time colors but floats on the deep-indigo cosmos and renders its
+    /// background as transparent cells — so the orb sits on the canvas cosmos in
+    /// block mode too, its soft edge / ripples reading as glow against the
+    /// matching indigo rather than a dark fringe. Off restores the season/time
+    /// palette and the opaque background. (The soft rim itself is always on for
+    /// the block orb — see `tick_frame`.)
     #[wasm_bindgen(js_name = setTransparentBackground)]
     pub fn set_transparent_background(&mut self, on: bool) {
         self.palette = if on {
-            palette::constellation()
+            palette::over_cosmos(self.base_palette)
         } else {
             self.base_palette
         };
@@ -170,6 +171,9 @@ impl Session {
             voice: self.voice_env,
             voice_pulse,
             palette: self.palette,
+            // The web orb is always half-block (the smooth orb is a separate
+            // canvas), so it always carries the soft glow rim.
+            soft_edge: true,
         };
         let mut surface = Surface::new(cols, rows * 2, self.palette.background);
         orb::paint(&mut surface, &scene);
