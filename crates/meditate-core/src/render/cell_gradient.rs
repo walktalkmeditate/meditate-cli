@@ -7,11 +7,19 @@ use crate::caps::ColorDepth;
 pub struct CellGradient {
     color: ColorDepth,
     quantize: u8,
+    /// When set, a pure-background cell (both pixels equal this color) renders as
+    /// a blank, default-background cell, so a transparent terminal reveals what
+    /// is behind it (the web constellation backdrop). `None` = opaque as usual.
+    transparent_bg: Option<Rgb>,
 }
 
 impl CellGradient {
     pub fn new(color: ColorDepth) -> CellGradient {
-        CellGradient { color, quantize: 1 }
+        CellGradient {
+            color,
+            quantize: 1,
+            transparent_bg: None,
+        }
     }
 
     /// Snap truecolor channels to a `step`, shrinking the number of distinct
@@ -22,7 +30,15 @@ impl CellGradient {
         CellGradient {
             color,
             quantize: step.max(1),
+            transparent_bg: None,
         }
+    }
+
+    /// Render pure-background cells as blank, default-background cells so a
+    /// transparent terminal reveals whatever is behind it. `None` restores the
+    /// usual opaque half-block background.
+    pub fn set_transparent_bg(&mut self, background: Option<Rgb>) {
+        self.transparent_bg = background;
     }
 
     /// Round a channel to the nearest multiple of the quantization step.
@@ -60,7 +76,19 @@ impl Renderer for CellGradient {
         for cy in 0..rows {
             for x in 0..surface.width() {
                 let bottom = surface.get(x, cy * 2 + 1);
-                if let Some(g) = surface.glyph(x, cy) {
+                let glyph = surface.glyph(x, cy);
+                // Transparent-background mode: a pure-background cell with no
+                // glyph becomes a blank, default-background cell so a transparent
+                // terminal reveals the backdrop behind it.
+                if glyph.is_none() {
+                    if let Some(bg) = self.transparent_bg {
+                        if surface.get(x, cy * 2) == bg && bottom == bg {
+                            out.push_str("\x1b[49m ");
+                            continue;
+                        }
+                    }
+                }
+                if let Some(g) = glyph {
                     // A star glyph: its own foreground over the deep-space
                     // background (the bottom pixel), in place of the half-block.
                     out.push_str(&self.fg(g.fg));
