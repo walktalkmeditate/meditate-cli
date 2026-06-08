@@ -1,7 +1,7 @@
 {
   "name": "meditate-web",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "description": "The meditate web terminal — the Rust breath core in the browser.",
   "scripts": {
