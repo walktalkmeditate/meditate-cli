@@ -803,7 +803,7 @@ dependencies = [
 
 [[package]]
 name = "meditate"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "clap",
  "coreaudio-sys",
@@ -825,11 +825,11 @@ dependencies = [
 
 [[package]]
 name = "meditate-core"
-version = "0.5.0"
+version = "0.5.1"
 
 [[package]]
 name = "meditate-wasm"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "meditate-core",
  "wasm-bindgen",
